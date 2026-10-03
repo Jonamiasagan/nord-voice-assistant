@@ -260,10 +260,93 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun handlePersonIntroduction(input: String): Boolean {
+        val lower = input.lowercase(Locale.getDefault()).trim()
+
+        // Filter out non-introduction queries (calls, music, navigation, etc.)
+        if (lower.startsWith("call ") || lower.startsWith("play ") || lower.startsWith("open ") || lower.startsWith("directions to")) {
+            return false
+        }
+
+        // Introduction & greeting trigger keywords
+        val isIntro = lower.contains("meet") ||
+                lower.contains("this is") ||
+                lower.contains("he is") ||
+                lower.contains("she is") ||
+                lower.contains("name is") ||
+                lower.contains("greet") ||
+                lower.contains("say hi") ||
+                lower.contains("say hello") ||
+                lower.contains("say hey") ||
+                lower.contains("welcome") ||
+                lower.contains("introduce") ||
+                lower.contains("hacker")
+
+        if (!isIntro) return false
+
+        // 1. VIP / Special Custom Introductions
+        if (lower.contains("uma")) {
+            speakResponse("Hello Uma sir! It is an absolute honor to meet you. How are you doing today, sir?")
+            return true
+        }
+
+        if (lower.contains("yashwanth") || (lower.contains("hacker") && !lower.contains("call"))) {
+            val name = if (lower.contains("yashwanth")) "Yashwanth" else "friend"
+            speakResponse("Greetings $name! Welcome, it's awesome to meet you! A true hacker in the house. How are you doing today?")
+            return true
+        }
+
+        if (lower.contains("baddu") || lower.contains("barath")) {
+            speakResponse("Hey Baddu! Great to meet you bro. How are you doing today?")
+            return true
+        }
+
+        if (lower.contains("bethol") || lower.contains("bharath")) {
+            speakResponse("Hello Bethol! Awesome to meet you. Hope you're doing great today!")
+            return true
+        }
+
+        if (lower.contains("amma") || lower.contains("mom") || lower.contains("mother")) {
+            speakResponse("Namaste Amma! It is a true blessing to meet you. How are you doing today?")
+            return true
+        }
+
+        // 2. Generic Name Extraction for any person introduction
+        // Handles: "this is rahul", "meet my friend anand", "say hi to priya", "his name is karthik", "greet dr smith"
+        val regexes = listOf(
+            Regex("(?i).*(?:his|her)\\s+name\\s+is\\s+([a-zA-Z]+(?:\\s+[a-zA-Z]+)?)"),
+            Regex("(?i).*(?:say\\s+(?:hi|hello|hey)\\s+to|greet|welcome)\\s+(?:my\\s+\\w+\\s+|our\\s+\\w+\\s+)?([a-zA-Z]+(?:\\s+[a-zA-Z]+)?)"),
+            Regex("(?i).*(?:this\\s+is|he\\s+is|she\\s+is|meet)\\s+(?:my\\s+\\w+\\s+|our\\s+\\w+\\s+)?([a-zA-Z]+(?:\\s+[a-zA-Z]+)?)"),
+            Regex("(?i).*introduce\\s+(?:yourself\\s+to\\s+)?(?:my\\s+\\w+\\s+|our\\s+\\w+\\s+)?([a-zA-Z]+(?:\\s+[a-zA-Z]+)?)")
+        )
+
+        val fillerWords = setOf("a", "an", "the", "my", "our", "him", "her", "them", "someone", "everyone", "devil", "assistant")
+
+        for (regex in regexes) {
+            val match = regex.find(input)
+            if (match != null) {
+                var candidate = match.groupValues[1].trim()
+                candidate = candidate.replace(Regex("(?i)^(?:my\\s+friend|our\\s+friend|friend|colleague|brother|bro|sister)\\s+"), "").trim()
+                val candidateLower = candidate.lowercase(Locale.getDefault())
+                if (!fillerWords.contains(candidateLower) && candidate.length > 1) {
+                    val formattedName = candidate.split(" ").joinToString(" ") { word ->
+                        word.replaceFirstChar { it.uppercase() }
+                    }
+                    speakResponse("Hi $formattedName! How are you? It's a real pleasure to meet you!")
+                    return true
+                }
+            }
+        }
+
+        // 3. Fallback greeting
+        speakResponse("Hello! How are you? It's a real pleasure to meet you!")
+        return true
+    }
+
     private fun processCommand(command: String) {
         val trimmed = command.trim()
         val greetingRegex = Regex("(?i)^(?:hello|hi|hey|good\\s+(?:morning|afternoon|evening)|namaste|hola)\\b.*")
-        val identityRegex = Regex("(?i).*(?:who\\s+are\\s+you|what(?:'s|\\s+is)\\s+your\\s+name|what\\s+are\\s+you|introduce\\s+yourself).*")
+        val identityRegex = Regex("(?i).*(?:who\\s+are\\s+you|what(?:'s|\\s+is)\\s+your\\s+name|what\\s+are\\s+you|introduce\\s+yourself(?!(?:\\s+to|\\s+with))).*")
         val howAreYouRegex = Regex("(?i).*(?:how\\s+are\\s+you|how's\\s+it\\s+going|how\\s+are\\s+things).*")
         val thanksRegex = Regex("(?i).*(?:thank\\s+you|thanks|thx).*")
         val helpRegex = Regex("(?i).*(?:what\\s+can\\s+you\\s+do|help\\s+me|help).*")
@@ -283,7 +366,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val directionsRegex = Regex("(?i)(?:directions?|route|navigate)\\s+to\\s+(.+)")
 
         when {
-            // ── 1. Conversational Fast-Path (0 latency) ──
+            // ── 1. Person Introduction & Greeting Fast-Path ──
+            handlePersonIntroduction(trimmed) -> {
+                // Handled directly inside handlePersonIntroduction with 0-latency
+            }
+
+            // ── 2. Conversational Fast-Path (0 latency) ──
             identityRegex.matches(trimmed) -> {
                 speakResponse("I'm DEVIL, I'm here to help.")
             }
@@ -300,7 +388,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakResponse("You're very welcome! I'm always here to help.")
             }
             helpRegex.matches(trimmed) -> {
-                speakResponse("I'm DEVIL. You can ask me questions, or ask me to play music in VLC, navigate with Maps, call contacts, or summarize your WhatsApp and text messages.")
+                speakResponse("I'm DEVIL. You can ask me questions, introduce people, or ask me to play music in VLC, navigate with Maps, call contacts, or summarize your WhatsApp and text messages.")
             }
 
             // ── 2. WhatsApp Messages ──
