@@ -197,7 +197,7 @@ fun GideonFaceView(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "S // AI ONLINE",
+                        text = "DEVIL // AI ONLINE",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
@@ -209,9 +209,9 @@ fun GideonFaceView(
                 Text(
                     text = when (state) {
                         AssistantState.LISTENING -> "STATUS: LISTENING TO YOU..."
-                        AssistantState.THINKING -> "STATUS: S ANALYZING QUERY..."
-                        AssistantState.SPEAKING -> "STATUS: S RESPONDING..."
-                        AssistantState.IDLE -> "STATUS: STANDBY // S READY"
+                        AssistantState.THINKING -> "STATUS: DEVIL ANALYZING..."
+                        AssistantState.SPEAKING -> "STATUS: DEVIL RESPONDING..."
+                        AssistantState.IDLE -> "STATUS: STANDBY // DEVIL READY"
                     },
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,

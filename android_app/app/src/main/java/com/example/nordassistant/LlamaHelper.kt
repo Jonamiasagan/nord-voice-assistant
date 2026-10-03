@@ -25,7 +25,11 @@ object LlamaHelper {
     private const val ADB_MODEL_PATH = "/data/local/tmp/model.gguf"
 
     private var model: LlamaModel? = null
-    private var modelReady = false
+    var modelReady = false
+        private set
+
+    val isReady: Boolean
+        get() = modelReady && model != null
 
     /**
      * Loads the model.  Tries the following locations in order:

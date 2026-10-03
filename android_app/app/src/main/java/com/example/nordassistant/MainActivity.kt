@@ -241,13 +241,21 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private val vipSenders = setOf("uj", "baddu", "bethol", "amma", "uma", "barath", "bharath", "mom", "mother")
+
+    private fun isVipSender(sender: String): Boolean {
+        val clean = sender.lowercase(Locale.getDefault()).trim()
+        return vipSenders.any { clean.contains(it) || it.contains(clean) }
+    }
+
     private fun normalizeContactName(spoken: String): String {
         val lower = spoken.lowercase(Locale.getDefault()).trim()
         return when (lower) {
-            "uma" -> "UJ"
+            "uma", "u j" -> "UJ"
             "moon", "moon cat", "cat", "gayatri" -> "gaytri"
             "barath" -> "baddu"
             "bharath" -> "bethol"
+            "mom", "mother" -> "amma"
             else -> spoken
         }
     }
@@ -259,6 +267,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val howAreYouRegex = Regex("(?i).*(?:how\\s+are\\s+you|how's\\s+it\\s+going|how\\s+are\\s+things).*")
         val thanksRegex = Regex("(?i).*(?:thank\\s+you|thanks|thx).*")
         val helpRegex = Regex("(?i).*(?:what\\s+can\\s+you\\s+do|help\\s+me|help).*")
+        val devilCallRegex = Regex("(?i).*(?:hey\\s+devil|ok\\s+devil|hello\\s+devil|devil).*")
 
         // Enhanced WhatsApp detection
         val isWhatsApp = trimmed.contains(Regex("(?i)\\bwhatsapp\\b"))
@@ -276,19 +285,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         when {
             // ── 1. Conversational Fast-Path (0 latency) ──
             identityRegex.matches(trimmed) -> {
-                speakResponse("I'm S, I'm here to help.")
+                speakResponse("I'm DEVIL, I'm here to help.")
             }
             greetingRegex.matches(trimmed) -> {
-                speakResponse("Hello! I'm S, I'm here to help.")
+                speakResponse("Hello! I'm DEVIL, I'm here to help.")
+            }
+            trimmed.matches(Regex("(?i)^(?:hey\\s+|ok\\s+|hello\\s+)?devil\\b.*")) && trimmed.length <= 15 -> {
+                speakResponse("Yes, I'm DEVIL. How can I help?")
             }
             howAreYouRegex.matches(trimmed) -> {
-                speakResponse("I'm doing well, thank you! I'm S, how can I help you today?")
+                speakResponse("I'm doing well, thank you! I'm DEVIL, how can I help you today?")
             }
             thanksRegex.matches(trimmed) -> {
                 speakResponse("You're very welcome! I'm always here to help.")
             }
             helpRegex.matches(trimmed) -> {
-                speakResponse("I'm S. You can ask me questions, or ask me to play music in VLC, navigate with Maps, call contacts, or read your WhatsApp and text messages.")
+                speakResponse("I'm DEVIL. You can ask me questions, or ask me to play music in VLC, navigate with Maps, call contacts, or summarize your WhatsApp and text messages.")
             }
 
             // ── 2. WhatsApp Messages ──
@@ -408,22 +420,61 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             return
         }
 
-        val sb = StringBuilder()
-        if (fromSender != null) {
-            sb.append("You have ${messages.size} WhatsApp message${if (messages.size > 1) "s" else ""} from $fromSender. ")
-        } else {
-            sb.append("You have ${messages.size} recent WhatsApp message${if (messages.size > 1) "s" else ""}. ")
-        }
+        // ── Prioritize UJ, Baddu, Bethol, Amma FIRST ──
+        val (vipMessages, regularMessages) = messages.partition { isVipSender(it.sender) }
+        val prioritized = vipMessages + regularMessages
 
-        for ((index, msg) in messages.take(3).withIndex()) {
-            val cleanBody = if (msg.message.length > 150) msg.message.substring(0, 150) + "..." else msg.message
-            if (fromSender == null) {
-                sb.append("From ${msg.sender}: $cleanBody. ")
-            } else {
-                sb.append("Message ${index + 1}: $cleanBody. ")
+        if (LlamaHelper.isReady) {
+            scope.launch(Dispatchers.IO) {
+                withContext(Dispatchers.Main) {
+                    assistantState = AssistantState.THINKING
+                    transcript = "DEVIL is briefing messages..."
+                }
+                try {
+                    val rawSummaryText = prioritized.take(4).joinToString("\n") { msg ->
+                        val vipLabel = if (isVipSender(msg.sender)) "[URGENT/IMPORTANT]" else "[NORMAL]"
+                        "$vipLabel From ${msg.sender}: ${msg.message}"
+                    }
+                    val prompt = """
+                    You are DEVIL, an AI voice assistant. Summarize what each sender is trying to say in 1-2 spoken sentences.
+                    MANDATORY: Always mention messages marked [URGENT/IMPORTANT] from UJ, Baddu, Bethol, or Amma FIRST.
+                    Explain what they want concisely. Do not repeat long text verbatim.
+                    $rawSummaryText
+                    DEVIL:
+                    """.trimIndent()
+                    val summary = LlamaHelper.generateAnswer(prompt)
+                    withContext(Dispatchers.Main) {
+                        speakResponse(summary)
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        speakPriorityFallback(prioritized)
+                    }
+                }
+            }
+        } else {
+            speakPriorityFallback(prioritized)
+        }
+    }
+
+    private fun speakPriorityFallback(messages: List<WhatsAppNotificationService.StoredMessage>) {
+        val sb = StringBuilder()
+        val (vip, regular) = messages.partition { isVipSender(it.sender) }
+
+        if (vip.isNotEmpty()) {
+            sb.append("Important priority alert. ")
+            for (msg in vip.take(2)) {
+                val clean = if (msg.message.length > 90) msg.message.substring(0, 90) + "..." else msg.message
+                sb.append("From ${msg.sender}: $clean. ")
             }
         }
-
+        if (regular.isNotEmpty()) {
+            if (vip.isNotEmpty()) sb.append("Other notifications: ")
+            for (msg in regular.take(2)) {
+                val clean = if (msg.message.length > 70) msg.message.substring(0, 70) + "..." else msg.message
+                sb.append("${msg.sender} says: $clean. ")
+            }
+        }
         speakResponse(sb.toString().trim())
     }
 
