@@ -362,6 +362,127 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         return true
     }
 
+    private fun handleMapsAndDistanceCommand(input: String): Boolean {
+        val trimmed = input.trim()
+        val lower = trimmed.lowercase(Locale.getDefault())
+
+        val isMapsIntent = lower.contains("distance") ||
+                lower.contains("how far") ||
+                lower.contains("directions") ||
+                lower.contains("route to") ||
+                lower.contains("navigate") ||
+                lower.contains("take me to") ||
+                lower.contains("show way to") ||
+                lower.contains("open maps") ||
+                lower.contains("google maps") ||
+                lower == "maps"
+
+        if (!isMapsIntent) return false
+
+        // 1. Two-point distance: "distance between A and B" or "distance from A to B"
+        val twoPointRegex1 = Regex("(?i).*(?:distance|how\\s+far)\\s+(?:between|from)\\s+(.+?)\\s+(?:and|to)\\s+(.+)")
+        val match1 = twoPointRegex1.find(trimmed)
+        if (match1 != null) {
+            val origin = match1.groupValues[1].trim()
+            val destination = match1.groupValues[2].trim()
+            openMapsRoute(origin, destination)
+            return true
+        }
+
+        // 2. "How far is A from B"
+        val twoPointRegex2 = Regex("(?i).*how\\s+far\\s+is\\s+(.+?)\\s+from\\s+(.+)")
+        val match2 = twoPointRegex2.find(trimmed)
+        if (match2 != null) {
+            val destination = match2.groupValues[1].trim()
+            val origin = match2.groupValues[2].trim()
+            openMapsRoute(origin, destination)
+            return true
+        }
+
+        // 3. Single destination distance:
+        // "what is the distance to Chennai", "distance to Hyderabad", "distance of Mumbai", "how far is Bangalore"
+        val singleDestRegex = Regex("(?i).*(?:distance\\s+(?:to|of|for)|how\\s+far\\s+is)\\s+(.+)")
+        val match3 = singleDestRegex.find(trimmed)
+        if (match3 != null) {
+            val destination = match3.groupValues[1]
+                .replace(Regex("(?i)^(?:the\\s+)?(?:city\\s+of\\s+)?"), "")
+                .replace(Regex("(?i)\\b(?:in\\s+google\\s+maps|on\\s+maps|in\\s+maps)\\b"), "")
+                .trim()
+            if (destination.isNotBlank()) {
+                openMapsRoute(origin = null, destination = destination)
+                return true
+            }
+        }
+
+        // 4. Navigation & Directions:
+        // "directions to X", "route to X", "navigate to X", "take me to X", "show way to X"
+        val navRegex = Regex("(?i).*(?:directions?|route|navigate|take\\s+me|show\\s+way)\\s+to\\s+(.+)")
+        val matchNav = navRegex.find(trimmed)
+        if (matchNav != null) {
+            val destination = matchNav.groupValues[1]
+                .replace(Regex("(?i)\\b(?:in\\s+google\\s+maps|on\\s+maps|in\\s+maps)\\b"), "")
+                .trim()
+            if (destination.isNotBlank()) {
+                openMapsNavigation(destination)
+                return true
+            }
+        }
+
+        // 5. General "open maps" / "maps"
+        if (lower.contains("maps")) {
+            openApp("maps")
+            speakResponse("Opening Google Maps.")
+            return true
+        }
+
+        return false
+    }
+
+    private fun handleMediaAndVlcCommand(input: String): Boolean {
+        val trimmed = input.trim()
+        val lower = trimmed.lowercase(Locale.getDefault())
+
+        val isMedia = lower.startsWith("play ") ||
+                lower.startsWith("start playing ") ||
+                lower.startsWith("shuffle ") ||
+                lower.contains("play on shuffle") ||
+                lower.contains("play random") ||
+                lower.contains("play playlist") ||
+                lower.contains("play album") ||
+                lower.contains("play artist") ||
+                lower.contains("play song") ||
+                lower.contains("play music") ||
+                lower.contains("in vlc") ||
+                lower.contains("on vlc") ||
+                lower == "play" ||
+                lower == "play music" ||
+                lower == "play songs" ||
+                lower == "shuffle" ||
+                lower == "shuffle songs" ||
+                lower == "shuffle music"
+
+        if (!isMedia) {
+            if (lower == "vlc" || lower == "vlc player" || lower == "open vlc" || lower == "open vlc player" || lower == "launch vlc") {
+                openApp("vlc")
+                speakResponse("Opening VLC player.")
+                return true
+            }
+            return false
+        }
+
+        val isShuffle = lower.contains("shuffle") || lower.contains("random")
+
+        var query = trimmed
+            .replace(Regex("(?i)^(?:can\\s+you\\s+|please\\s+)?(?:play|start\\s+playing|shuffle(?:\\s+play)?|play\\s+on\\s+shuffle|play\\s+random)\\s*"), "")
+            .replace(Regex("(?i)\\b(?:in|on|from|using|with)\\s+vlc(?:\\s+player)?\\b"), "")
+            .replace(Regex("(?i)\\bvlc(?:\\s+player)?\\b"), "")
+            .replace(Regex("(?i)\\bon\\s+shuffle\\b|\\bshuffle\\b|\\brandom\\b"), "")
+            .trim()
+
+        playMedia(query, shuffle = isShuffle)
+        return true
+    }
+
     private fun processCommand(command: String) {
         val trimmed = command.trim()
         val greetingRegex = Regex("(?i)^(?:hello|hi|hey|good\\s+(?:morning|afternoon|evening)|namaste|hola)\\b.*")
@@ -369,7 +490,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val howAreYouRegex = Regex("(?i).*(?:how\\s+are\\s+you|how's\\s+it\\s+going|how\\s+are\\s+things).*")
         val thanksRegex = Regex("(?i).*(?:thank\\s+you|thanks|thx).*")
         val helpRegex = Regex("(?i).*(?:what\\s+can\\s+you\\s+do|help\\s+me|help).*")
-        val devilCallRegex = Regex("(?i).*(?:hey\\s+devil|ok\\s+devil|hello\\s+devil|devil).*")
 
         // Enhanced WhatsApp detection
         val isWhatsApp = trimmed.contains(Regex("(?i)\\bwhatsapp\\b"))
@@ -377,12 +497,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val isSms = trimmed.contains(Regex("(?i)\\b(?:texts?|sms|messages?)\\b")) && !isWhatsApp
 
         val callRegex = Regex("(?i)call\\s+(.+)")
-        val shuffleRegex = Regex("(?i)(?:shuffle(?:\\s+play)?|play\\s+on\\s+shuffle|play\\s+random)(?:\\s+(.+))?")
-        val playRegex = Regex("(?i)(?:play|start\\s+playing)(?:\\s+(.+))?")
         val openAppRegex = Regex("(?i)(?:open|launch|start)\\s+(.+)")
-        val distanceRegex = Regex("(?i)(?:what(?:'s|\\s+is)\\s+the\\s+)?distance\\s+(?:between|from)\\s+(.+?)\\s+(?:and|to)\\s+(.+)")
-        val howFarRegex = Regex("(?i)how\\s+far\\s+is\\s+(.+?)\\s+from\\s+(.+)")
-        val directionsRegex = Regex("(?i)(?:directions?|route|navigate)\\s+to\\s+(.+)")
 
         val isLockdown = trimmed.matches(Regex("(?i).*(?:lock\\s*down|cancel\\s+guest|revoke\\s+guest|boss\\s+only).*"))
         val isAuthCheck = trimmed.matches(Regex("(?i).*(?:who\\s+is\\s+authorized|authorization\\s+status|who\\s+can\\s+talk|who\\s+has\\s+access).*"))
@@ -424,17 +539,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakResponse("You're very welcome! I'm always here to help.")
             }
             helpRegex.matches(trimmed) -> {
-                speakResponse("I'm DEVIL. You can ask me questions, introduce people, or ask me to play music in VLC, navigate with Maps, call contacts, or summarize your WhatsApp and text messages.")
+                speakResponse("I'm DEVIL. You can ask me questions, introduce people, or ask me to play albums and playlists in VLC, check distance and navigate with Maps, call contacts, or summarize your WhatsApp and text messages.")
             }
 
-            // ── 2. WhatsApp Messages ──
+            // ── 3. WhatsApp Messages ──
             isWhatsApp -> {
                 val fromMatch = Regex("(?i)(?:from|by)\\s+(.+)").find(trimmed)
                 val sender = fromMatch?.groupValues?.get(1)?.trim()
                 readWhatsAppMessages(fromSender = sender)
             }
 
-            // ── 3. SMS & Text Messages ──
+            // ── 4. SMS & Text Messages ──
             isSms && (trimmed.contains(Regex("(?i)\\b(?:read|check|get|any|latest|recent)\\b")) || trimmed.contains("unread", ignoreCase = true)) -> {
                 val fromMatch = Regex("(?i)(?:from|by)\\s+(.+)").find(trimmed)
                 val sender = fromMatch?.groupValues?.get(1)?.trim()
@@ -442,54 +557,29 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 readMessages(fromSender = sender, unreadOnly = isUnread)
             }
 
-            // ── 4. Phone Calls ──
+            // ── 5. Phone Calls ──
             callRegex.matches(trimmed) -> {
                 val spokenName = callRegex.find(trimmed)?.groupValues?.get(1) ?: return
                 val contactName = normalizeContactName(spokenName)
                 callContact(contactName)
             }
 
-            // ── 5. Maps & Navigation ──
-            distanceRegex.matches(trimmed) -> {
-                val match = distanceRegex.find(trimmed)
-                val origin = match?.groupValues?.get(1)?.trim() ?: return
-                val destination = match.groupValues.get(2).trim()
-                openMapsRoute(origin, destination)
-            }
-            howFarRegex.matches(trimmed) -> {
-                val match = howFarRegex.find(trimmed)
-                val destination = match?.groupValues?.get(1)?.trim() ?: return
-                val origin = match.groupValues.get(2).trim()
-                openMapsRoute(origin, destination)
-            }
-            directionsRegex.matches(trimmed) -> {
-                val destination = directionsRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: return
-                openMapsNavigation(destination)
+            // ── 6. Maps, Routes & Distance ──
+            handleMapsAndDistanceCommand(trimmed) -> {
+                // Handled directly inside handleMapsAndDistanceCommand
             }
 
-            // ── 6. Apps & VLC ──
+            // ── 7. VLC Player & Media (Playlists, Albums, Artists, Songs, Shuffle) ──
+            handleMediaAndVlcCommand(trimmed) -> {
+                // Handled directly inside handleMediaAndVlcCommand
+            }
+
+            // ── 8. General Apps ──
             openAppRegex.matches(trimmed) -> {
                 val appName = openAppRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: return
                 if (!openApp(appName)) {
                     queryBackend(trimmed)
                 }
-            }
-            // Direct mention of VLC like "vlc", "vlc player"
-            trimmed.contains("vlc", ignoreCase = true) -> {
-                openApp("vlc")
-            }
-            shuffleRegex.matches(trimmed) -> {
-                val mediaQuery = shuffleRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: ""
-                playMedia(mediaQuery, shuffle = true)
-            }
-            playRegex.matches(trimmed) -> {
-                var mediaQuery = playRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: ""
-                var isShuffle = false
-                if (mediaQuery.contains(Regex("(?i)\\bon\\s+shuffle\\b|\\bshuffle\\b|\\brandom\\b"))) {
-                    isShuffle = true
-                    mediaQuery = mediaQuery.replace(Regex("(?i)\\bon\\s+shuffle\\b|\\bshuffle\\b|\\brandom\\b"), "").trim()
-                }
-                playMedia(mediaQuery, shuffle = isShuffle)
             }
             else -> {
                 queryBackend(trimmed)
@@ -748,9 +838,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         return false
     }
 
-    private fun openMapsRoute(origin: String, destination: String) {
+    private fun openMapsRoute(origin: String?, destination: String) {
         try {
-            val mapsUri = Uri.parse("https://www.google.com/maps/dir/?api=1&origin=${Uri.encode(origin)}&destination=${Uri.encode(destination)}")
+            val mapsUri = if (origin.isNullOrBlank()) {
+                Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${Uri.encode(destination)}")
+            } else {
+                Uri.parse("https://www.google.com/maps/dir/?api=1&origin=${Uri.encode(origin)}&destination=${Uri.encode(destination)}")
+            }
+
             val mapIntent = Intent(Intent.ACTION_VIEW, mapsUri).apply {
                 setPackage("com.google.android.apps.maps")
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -762,10 +857,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 })
             }
-            speakResponse("Showing route from $origin to $destination in Google Maps")
+            if (origin.isNullOrBlank()) {
+                speakResponse("Opening Google Maps to show distance and route to $destination.")
+            } else {
+                speakResponse("Showing distance and route from $origin to $destination in Google Maps.")
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Error opening Maps", e)
-            speakResponse("Could not open Google Maps")
+            speakResponse("Could not open Google Maps.")
         }
     }
 
@@ -784,10 +883,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 })
             }
-            speakResponse("Starting navigation to $destination")
+            speakResponse("Starting navigation to $destination in Google Maps.")
         } catch (e: Exception) {
             Log.e("MainActivity", "Error starting navigation", e)
-            speakResponse("Could not open Google Maps")
+            speakResponse("Could not open Google Maps.")
         }
     }
 
@@ -845,35 +944,79 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         try {
             val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-            val projection = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM)
+            val projection = arrayOf(
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.ALBUM
+            )
 
             val isGeneric = keyword.isBlank() || keyword.lowercase(Locale.getDefault()) in listOf("song", "songs", "music", "audio", "something", "track", "tracks")
-            val (selection, selectionArgs) = when {
-                isGeneric -> Pair(null, null)
-                mediaType == "album" -> Pair("${MediaStore.Audio.Media.ALBUM} LIKE ?", arrayOf("%$keyword%"))
-                mediaType == "artist" -> Pair("${MediaStore.Audio.Media.ARTIST} LIKE ?", arrayOf("%$keyword%"))
-                else -> Pair(
-                    "${MediaStore.Audio.Media.ARTIST} LIKE ? OR ${MediaStore.Audio.Media.ALBUM} LIKE ? OR ${MediaStore.Audio.Media.TITLE} LIKE ?",
-                    arrayOf("%$keyword%", "%$keyword%", "%$keyword%")
-                )
-            }
+            val cleanKw = keyword.trim()
 
             val trackIds = mutableListOf<Long>()
-            contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                while (cursor.moveToNext() && trackIds.size < 2000) {
-                    trackIds.add(cursor.getLong(idCol))
-                }
-            }
 
-            // Fallback to broader search if specific album/artist search yielded 0 results
-            if (trackIds.isEmpty() && !isGeneric && mediaType != null) {
-                val fallbackSelection = "${MediaStore.Audio.Media.ARTIST} LIKE ? OR ${MediaStore.Audio.Media.ALBUM} LIKE ? OR ${MediaStore.Audio.Media.TITLE} LIKE ?"
-                val fallbackArgs = arrayOf("%$keyword%", "%$keyword%", "%$keyword%")
-                contentResolver.query(uri, projection, fallbackSelection, fallbackArgs, null)?.use { cursor ->
+            if (isGeneric) {
+                val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+                contentResolver.query(uri, projection, selection, null, null)?.use { cursor ->
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                    while (cursor.moveToNext() && trackIds.size < 2000) {
+                    while (cursor.moveToNext() && trackIds.size < 500) {
                         trackIds.add(cursor.getLong(idCol))
+                    }
+                }
+            } else {
+                when (mediaType) {
+                    "album" -> {
+                        val selection = "${MediaStore.Audio.Media.ALBUM} LIKE ?"
+                        val selectionArgs = arrayOf("%$cleanKw%")
+                        contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                            while (cursor.moveToNext()) {
+                                trackIds.add(cursor.getLong(idCol))
+                            }
+                        }
+                    }
+                    "artist" -> {
+                        val selection = "${MediaStore.Audio.Media.ARTIST} LIKE ?"
+                        val selectionArgs = arrayOf("%$cleanKw%")
+                        contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                            while (cursor.moveToNext()) {
+                                trackIds.add(cursor.getLong(idCol))
+                            }
+                        }
+                    }
+                    "playlist" -> {
+                        val selection = "${MediaStore.Audio.Media.ALBUM} LIKE ? OR ${MediaStore.Audio.Media.ARTIST} LIKE ? OR ${MediaStore.Audio.Media.TITLE} LIKE ?"
+                        val selectionArgs = arrayOf("%$cleanKw%", "%$cleanKw%", "%$cleanKw%")
+                        contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                            while (cursor.moveToNext()) {
+                                trackIds.add(cursor.getLong(idCol))
+                            }
+                        }
+                    }
+                    else -> {
+                        val selection = "${MediaStore.Audio.Media.TITLE} LIKE ? OR ${MediaStore.Audio.Media.ALBUM} LIKE ? OR ${MediaStore.Audio.Media.ARTIST} LIKE ?"
+                        val selectionArgs = arrayOf("%$cleanKw%", "%$cleanKw%", "%$cleanKw%")
+                        contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                            while (cursor.moveToNext()) {
+                                trackIds.add(cursor.getLong(idCol))
+                            }
+                        }
+                    }
+                }
+
+                // Fallback to broader search if specific album/artist search yielded 0 results
+                if (trackIds.isEmpty()) {
+                    val fallbackSelection = "${MediaStore.Audio.Media.TITLE} LIKE ? OR ${MediaStore.Audio.Media.ALBUM} LIKE ? OR ${MediaStore.Audio.Media.ARTIST} LIKE ?"
+                    val fallbackArgs = arrayOf("%$cleanKw%", "%$cleanKw%", "%$cleanKw%")
+                    contentResolver.query(uri, projection, fallbackSelection, fallbackArgs, null)?.use { cursor ->
+                        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                        while (cursor.moveToNext()) {
+                            trackIds.add(cursor.getLong(idCol))
+                        }
                     }
                 }
             }
@@ -889,24 +1032,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun playMedia(query: String, shuffle: Boolean = false) {
-        val cleanQuery = query.replace(Regex("(?i)\\b(?:in|on|from|using|with)\\s+vlc\\b"), "")
-                              .replace(Regex("(?i)\\bvlc\\b"), "")
+        val cleanQuery = query.replace(Regex("(?i)\\b(?:in|on|from|using|with)\\s+vlc(?:\\s+player)?\\b"), "")
+                              .replace(Regex("(?i)\\bvlc(?:\\s+player)?\\b"), "")
                               .trim()
-        val isGeneric = cleanQuery.isEmpty() || cleanQuery.lowercase(Locale.getDefault()) in listOf("song", "songs", "music", "audio", "something", "track", "tracks")
+        val isGeneric = cleanQuery.isEmpty() || cleanQuery.lowercase(Locale.getDefault()) in listOf("song", "songs", "music", "audio", "something", "track", "tracks", "all", "anything")
 
         try {
-            if (isGeneric && !shuffle) {
-                // Launch VLC app directly
-                val launchIntent = packageManager.getLaunchIntentForPackage("org.videolan.vlc")
-                if (launchIntent != null) {
-                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(launchIntent)
-                    transcript = "Opening VLC player"
-                    tts.speak("Opening VLC player", TextToSpeech.QUEUE_FLUSH, null, null)
-                    return
-                }
-            }
-
             // Detect if query is asking for an album, playlist, artist, or track
             val playlistRegex = Regex("(?i)(?:the\\s+)?playlist\\s+(.+)|(.+?)\\s+playlist")
             val albumRegex = Regex("(?i)(?:the\\s+)?album\\s+(.+)|(.+?)\\s+album")
@@ -958,7 +1089,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val actionPrefix = if (shuffle) "Shuffling" else "Playing"
             val displayTitle = if (targetName.isBlank() || isGeneric) "music" else targetName
 
-            // 1. Check if there is a matching track on device storage
+            // 1. Try launching the matched local track directly in VLC
             val localTrackUri = findMatchingTrackUri(targetName, shuffle = shuffle, mediaType = mediaType)
             if (localTrackUri != null) {
                 val directPlayIntent = Intent(Intent.ACTION_VIEW).apply {
@@ -973,13 +1104,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
                 if (directPlayIntent.resolveActivity(packageManager) != null) {
                     startActivity(directPlayIntent)
-                    transcript = "$actionPrefix $displayTitle in VLC"
-                    tts.speak("$actionPrefix $displayTitle in VLC", TextToSpeech.QUEUE_FLUSH, null, null)
+                    val speakText = when (mediaType) {
+                        "album" -> "$actionPrefix album $displayTitle in VLC"
+                        "artist" -> "$actionPrefix songs by $displayTitle in VLC"
+                        "playlist" -> "$actionPrefix playlist $displayTitle in VLC"
+                        else -> "$actionPrefix $displayTitle in VLC"
+                    }
+                    speakResponse(speakText)
                     return
                 }
             }
 
-            // 2. Attempt to search & play in VLC
+            // 2. Otherwise send MEDIA_PLAY_FROM_SEARCH to VLC
             val vlcSearchIntent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
                 putExtra(SearchManager.QUERY, targetName)
                 putExtra(MediaStore.EXTRA_MEDIA_FOCUS, mediaFocus)
@@ -1000,47 +1136,29 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             if (vlcSearchIntent.resolveActivity(packageManager) != null) {
                 startActivity(vlcSearchIntent)
-                transcript = "$actionPrefix $displayTitle in VLC"
-                tts.speak("$actionPrefix $displayTitle in VLC", TextToSpeech.QUEUE_FLUSH, null, null)
-            } else {
-                // If specific search intent didn't resolve, launch VLC directly
-                val launchIntent = packageManager.getLaunchIntentForPackage("org.videolan.vlc")
-                if (launchIntent != null) {
-                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(launchIntent)
-                    transcript = "Opening VLC"
-                    tts.speak("Opening VLC", TextToSpeech.QUEUE_FLUSH, null, null)
-                } else {
-                    val genericIntent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
-                        putExtra(SearchManager.QUERY, targetName)
-                        putExtra(MediaStore.EXTRA_MEDIA_FOCUS, mediaFocus)
-                        if (shuffle) {
-                            putExtra("android.intent.extra.SHUFFLE", true)
-                            putExtra("shuffle", true)
-                        }
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    startActivity(genericIntent)
-                    transcript = "$actionPrefix $displayTitle"
+                val speakText = when (mediaType) {
+                    "album" -> "$actionPrefix album $displayTitle in VLC"
+                    "artist" -> "$actionPrefix songs by $displayTitle in VLC"
+                    "playlist" -> "$actionPrefix playlist $displayTitle in VLC"
+                    else -> "$actionPrefix $displayTitle in VLC"
                 }
+                speakResponse(speakText)
+                return
             }
+
+            // 3. Fallback: Launch VLC directly
+            val launchIntent = packageManager.getLaunchIntentForPackage("org.videolan.vlc")
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(launchIntent)
+                speakResponse("Opening VLC player.")
+                return
+            }
+
+            speakResponse("VLC player is not installed.")
         } catch (e: Exception) {
             Log.e("MainActivity", "Error playing media", e)
-            try {
-                val launchIntent = packageManager.getLaunchIntentForPackage("org.videolan.vlc")
-                if (launchIntent != null) {
-                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(launchIntent)
-                    transcript = "Opening VLC"
-                    tts.speak("Opening VLC", TextToSpeech.QUEUE_FLUSH, null, null)
-                } else {
-                    transcript = "VLC not found"
-                    tts.speak("VLC not found", TextToSpeech.QUEUE_FLUSH, null, null)
-                }
-            } catch (ex: Exception) {
-                transcript = "Media error"
-                tts.speak("Could not open media player", TextToSpeech.QUEUE_FLUSH, null, null)
-            }
+            speakResponse("Could not open VLC player.")
         }
     }
 
@@ -1048,12 +1166,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         scope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) {
                 assistantState = AssistantState.THINKING
-                transcript = "S is thinking..."
+                transcript = "DEVIL is thinking..."
             }
             try {
-                // Friendly, concise prompt identifying as S
-                val system = "You are S, a friendly, concise AI voice assistant. Always identify as S. Answer in 1 short sentence in plain conversational text."
-                val fullPrompt = "$system\nUser: $query\nS:"
+                // Confident, concise prompt identifying as DEVIL
+                val system = "You are DEVIL, an AI voice assistant. Always identify as DEVIL. Answer in 1 short sentence in plain conversational text."
+                val fullPrompt = "$system\nUser: $query\nDEVIL:"
                 val answer = LlamaHelper.generateAnswer(fullPrompt)
                 withContext(Dispatchers.Main) {
                     speakResponse(answer)
