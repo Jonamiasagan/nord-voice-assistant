@@ -55,6 +55,7 @@ fun GideonFaceView(
     state: AssistantState,
     transcript: String,
     onAvatarClick: () -> Unit,
+    securityStatus: String = "DEVIL // BOSS SECURED",
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "gideon_animations")
@@ -191,18 +192,18 @@ fun GideonFaceView(
                                     AssistantState.THINKING -> Color(0xFFFFD600)
                                     AssistantState.LISTENING -> Color(0xFF00E676)
                                     AssistantState.SPEAKING -> Color(0xFF00E5FF)
-                                    AssistantState.IDLE -> Color(0xFF00B0FF)
+                                    AssistantState.IDLE -> if (securityStatus.contains("GUEST")) Color(0xFFFFD600) else Color(0xFF00B0FF)
                                 }
                             )
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "DEVIL // AI ONLINE",
+                        text = securityStatus,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp,
-                        color = Color(0xFF00E5FF).copy(alpha = 0.9f)
+                        letterSpacing = 1.5.sp,
+                        color = if (securityStatus.contains("GUEST")) Color(0xFFFFD600) else Color(0xFF00E5FF).copy(alpha = 0.9f)
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))

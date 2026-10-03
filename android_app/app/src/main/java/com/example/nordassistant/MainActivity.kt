@@ -27,6 +27,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.nordassistant.security.BossSecurityManager
 import com.example.nordassistant.theme.NordAssistantTheme
 import com.example.nordassistant.ui.AssistantState
 import com.example.nordassistant.ui.GideonFaceView
@@ -38,12 +39,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var speechRecognizer: SpeechRecognizer
     private lateinit var tts: TextToSpeech
     private lateinit var audioManager: AudioManager
+    private lateinit var bossSecurity: BossSecurityManager
     
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     
     private var isListening by mutableStateOf(false)
     private var assistantState by mutableStateOf(AssistantState.IDLE)
     private var transcript by mutableStateOf("Ready for voice command...")
+    private var securityStatus by mutableStateOf("DEVIL // BOSS SECURED")
     
     private val requiredPermissions = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
         arrayOf(
@@ -78,6 +81,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         super.onCreate(savedInstanceState)
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         tts = TextToSpeech(this, this)
+        bossSecurity = BossSecurityManager.getInstance(this)
+        securityStatus = bossSecurity.getSecurityStatus()
+
         // Initialize on-device LLM helper (copies model + loads it in background)
         scope.launch(Dispatchers.IO) {
             LlamaHelper.init(this@MainActivity)
@@ -88,6 +94,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 GideonFaceView(
                     state = assistantState,
                     transcript = transcript,
+                    securityStatus = securityStatus,
                     onAvatarClick = {
                         if (assistantState == AssistantState.IDLE) {
                             startListening()
@@ -286,28 +293,38 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         // 1. VIP / Special Custom Introductions
         if (lower.contains("uma")) {
-            speakResponse("Hello Uma sir! It is an absolute honor to meet you. How are you doing today, sir?")
+            bossSecurity.introduceGuest("Uma sir")
+            securityStatus = bossSecurity.getSecurityStatus()
+            speakResponse("Hello Uma sir! It is an absolute honor to meet you. Guest session authorized for you. How are you doing today, sir?")
             return true
         }
 
         if (lower.contains("yashwanth") || (lower.contains("hacker") && !lower.contains("call"))) {
             val name = if (lower.contains("yashwanth")) "Yashwanth" else "friend"
-            speakResponse("Greetings $name! Welcome, it's awesome to meet you! A true hacker in the house. How are you doing today?")
+            bossSecurity.introduceGuest(name)
+            securityStatus = bossSecurity.getSecurityStatus()
+            speakResponse("Greetings $name! Welcome, it's awesome to meet you! A true hacker in the house. Guest privileges authorized. How are you doing today?")
             return true
         }
 
         if (lower.contains("baddu") || lower.contains("barath")) {
-            speakResponse("Hey Baddu! Great to meet you bro. How are you doing today?")
+            bossSecurity.introduceGuest("Baddu")
+            securityStatus = bossSecurity.getSecurityStatus()
+            speakResponse("Hey Baddu! Great to meet you bro. Guest session granted. How are you doing today?")
             return true
         }
 
         if (lower.contains("bethol") || lower.contains("bharath")) {
-            speakResponse("Hello Bethol! Awesome to meet you. Hope you're doing great today!")
+            bossSecurity.introduceGuest("Bethol")
+            securityStatus = bossSecurity.getSecurityStatus()
+            speakResponse("Hello Bethol! Awesome to meet you. Guest session granted. Hope you're doing great today!")
             return true
         }
 
         if (lower.contains("amma") || lower.contains("mom") || lower.contains("mother")) {
-            speakResponse("Namaste Amma! It is a true blessing to meet you. How are you doing today?")
+            bossSecurity.introduceGuest("Amma")
+            securityStatus = bossSecurity.getSecurityStatus()
+            speakResponse("Namaste Amma! It is a true blessing to meet you. Guest session authorized. How are you doing today?")
             return true
         }
 
@@ -332,7 +349,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     val formattedName = candidate.split(" ").joinToString(" ") { word ->
                         word.replaceFirstChar { it.uppercase() }
                     }
-                    speakResponse("Hi $formattedName! How are you? It's a real pleasure to meet you!")
+                    bossSecurity.introduceGuest(formattedName)
+                    securityStatus = bossSecurity.getSecurityStatus()
+                    speakResponse("Hi $formattedName! How are you? Guest privileges have been activated. It's a real pleasure to meet you!")
                     return true
                 }
             }
@@ -365,7 +384,24 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val howFarRegex = Regex("(?i)how\\s+far\\s+is\\s+(.+?)\\s+from\\s+(.+)")
         val directionsRegex = Regex("(?i)(?:directions?|route|navigate)\\s+to\\s+(.+)")
 
+        val isLockdown = trimmed.matches(Regex("(?i).*(?:lock\\s*down|cancel\\s+guest|revoke\\s+guest|boss\\s+only).*"))
+        val isAuthCheck = trimmed.matches(Regex("(?i).*(?:who\\s+is\\s+authorized|authorization\\s+status|who\\s+can\\s+talk|who\\s+has\\s+access).*"))
+
         when {
+            // ── 0. Boss Security Lockdown & Authorization ──
+            isLockdown -> {
+                val msg = bossSecurity.revokeGuest()
+                securityStatus = bossSecurity.getSecurityStatus()
+                speakResponse(msg)
+            }
+            isAuthCheck -> {
+                if (bossSecurity.isGuestSessionActive()) {
+                    speakResponse("You are the Boss with master voice clearance. Active guest ${bossSecurity.activeGuest} is currently authorized to speak with DEVIL.")
+                } else {
+                    speakResponse("Boss-only mode is active. Master voice clearance is required. No outside guests are authorized.")
+                }
+            }
+
             // ── 1. Person Introduction & Greeting Fast-Path ──
             handlePersonIntroduction(trimmed) -> {
                 // Handled directly inside handlePersonIntroduction with 0-latency
