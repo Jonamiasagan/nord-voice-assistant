@@ -22,26 +22,62 @@ class WhatsAppNotificationService : NotificationListenerService() {
         private const val TAG = "WhatsAppService"
         private const val MAX_MESSAGES = 30
         private val messageHistory = mutableListOf<StoredMessage>()
+        var instance: WhatsAppNotificationService? = null
 
         /**
          * Returns recent non-commercial WhatsApp messages, optionally filtered by sender name.
+         * Scans both live active notifications from the status bar AND memory history.
          */
         fun getRecentMessages(fromSender: String? = null): List<StoredMessage> {
-            synchronized(messageHistory) {
-                if (fromSender.isNullOrBlank()) {
-                    return messageHistory.takeLast(5).reversed()
+            val results = mutableListOf<StoredMessage>()
+
+            // 1. Pull directly from active notifications currently on the phone!
+            try {
+                instance?.activeNotifications?.forEach { sbn ->
+                    val pkg = sbn.packageName ?: return@forEach
+                    if (pkg == "com.whatsapp" || pkg == "com.whatsapp.w4b") {
+                        val extras = sbn.notification.extras ?: return@forEach
+                        val sender = extras.getString(Notification.EXTRA_TITLE) ?: return@forEach
+                        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+                        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+                        val content = (bigText ?: text)?.trim() ?: return@forEach
+
+                        if (content.isNotEmpty() && !MessageFilter.isCommercialOrSpam(sender, content)) {
+                            results.add(StoredMessage(sender, content, sbn.postTime))
+                        }
+                    }
                 }
-                val cleanQuery = fromSender.trim().lowercase(Locale.getDefault())
-                return messageHistory.filter {
-                    it.sender.lowercase(Locale.getDefault()).contains(cleanQuery) ||
-                            cleanQuery.contains(it.sender.lowercase(Locale.getDefault()))
-                }.takeLast(5).reversed()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error querying activeNotifications", e)
             }
+
+            // 2. Combine with captured message history
+            synchronized(messageHistory) {
+                for (msg in messageHistory) {
+                    if (results.none { it.sender == msg.sender && it.message == msg.message }) {
+                        results.add(msg)
+                    }
+                }
+            }
+
+            // Sort by most recent
+            results.sortByDescending { it.timestamp }
+
+            if (fromSender.isNullOrBlank()) {
+                return results.take(5)
+            }
+            val cleanQuery = fromSender.trim().lowercase(Locale.getDefault())
+            return results.filter {
+                it.sender.lowercase(Locale.getDefault()).contains(cleanQuery) ||
+                        cleanQuery.contains(it.sender.lowercase(Locale.getDefault()))
+            }.take(5)
         }
 
         fun hasMessages(): Boolean {
             synchronized(messageHistory) {
-                return messageHistory.isNotEmpty()
+                return messageHistory.isNotEmpty() || (instance?.activeNotifications?.any {
+                    it.packageName == "com.whatsapp" || it.packageName == "com.whatsapp.w4b"
+                } == true)
             }
         }
     }
@@ -85,6 +121,14 @@ class WhatsAppNotificationService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        instance = this
         Log.i(TAG, "WhatsApp Notification Listener connected successfully")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (instance == this) {
+            instance = null
+        }
     }
 }

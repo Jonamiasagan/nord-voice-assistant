@@ -197,21 +197,21 @@ fun GideonFaceView(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "G.I.D.E.O.N. // SYSTEM ONLINE",
+                        text = "S // AI ONLINE",
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 2.sp,
-                        color = Color(0xFF00E5FF).copy(alpha = 0.85f)
+                        color = Color(0xFF00E5FF).copy(alpha = 0.9f)
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = when (state) {
-                        AssistantState.LISTENING -> "STATUS: AUDIO SENSORS ACTIVE..."
-                        AssistantState.THINKING -> "STATUS: QUANTUM NEURAL PROCESSING..."
-                        AssistantState.SPEAKING -> "STATUS: VOCAL SYNTHESIS ACTIVE"
-                        AssistantState.IDLE -> "STATUS: STANDBY // TAP TO ENGAGE"
+                        AssistantState.LISTENING -> "STATUS: LISTENING TO YOU..."
+                        AssistantState.THINKING -> "STATUS: S ANALYZING QUERY..."
+                        AssistantState.SPEAKING -> "STATUS: S RESPONDING..."
+                        AssistantState.IDLE -> "STATUS: STANDBY // S READY"
                     },
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,

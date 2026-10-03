@@ -254,6 +254,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun processCommand(command: String) {
         val trimmed = command.trim()
+        val greetingRegex = Regex("(?i)^(?:hello|hi|hey|good\\s+(?:morning|afternoon|evening)|namaste|hola)\\b.*")
+        val identityRegex = Regex("(?i).*(?:who\\s+are\\s+you|what(?:'s|\\s+is)\\s+your\\s+name|what\\s+are\\s+you|introduce\\s+yourself).*")
+        val howAreYouRegex = Regex("(?i).*(?:how\\s+are\\s+you|how's\\s+it\\s+going|how\\s+are\\s+things).*")
+        val thanksRegex = Regex("(?i).*(?:thank\\s+you|thanks|thx).*")
+        val helpRegex = Regex("(?i).*(?:what\\s+can\\s+you\\s+do|help\\s+me|help).*")
+
+        // Enhanced WhatsApp detection
+        val isWhatsApp = trimmed.contains(Regex("(?i)\\bwhatsapp\\b"))
+        // Enhanced SMS detection
+        val isSms = trimmed.contains(Regex("(?i)\\b(?:texts?|sms|messages?)\\b")) && !isWhatsApp
+
         val callRegex = Regex("(?i)call\\s+(.+)")
         val shuffleRegex = Regex("(?i)(?:shuffle(?:\\s+play)?|play\\s+on\\s+shuffle|play\\s+random)(?:\\s+(.+))?")
         val playRegex = Regex("(?i)(?:play|start\\s+playing)(?:\\s+(.+))?")
@@ -261,32 +272,48 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val distanceRegex = Regex("(?i)(?:what(?:'s|\\s+is)\\s+the\\s+)?distance\\s+(?:between|from)\\s+(.+?)\\s+(?:and|to)\\s+(.+)")
         val howFarRegex = Regex("(?i)how\\s+far\\s+is\\s+(.+?)\\s+from\\s+(.+)")
         val directionsRegex = Regex("(?i)(?:directions?|route|navigate)\\s+to\\s+(.+)")
-        val readWhatsAppSenderRegex = Regex("(?i)(?:read|check)\\s+(?:my\\s+)?whatsapp(?:\\s+messages?|\\s+texts?)?\\s+from\\s+(.+)")
-        val readWhatsAppRegex = Regex("(?i)(?:read|check)\\s+(?:my\\s+)?whatsapp(?:\\s+messages?|\\s+texts?)?")
-        val readFromSenderRegex = Regex("(?i)(?:read|check)\\s+(?:my\\s+)?(?:latest\\s+|recent\\s+|unread\\s+)?(?:messages?|sms|texts?)\\s+from\\s+(.+)")
-        val readMessagesRegex = Regex("(?i)(?:read|check)\\s+(?:my\\s+)?(?:latest\\s+|recent\\s+|unread\\s+)?(?:messages?|sms|texts?)")
 
         when {
+            // ── 1. Conversational Fast-Path (0 latency) ──
+            identityRegex.matches(trimmed) -> {
+                speakResponse("I'm S, I'm here to help.")
+            }
+            greetingRegex.matches(trimmed) -> {
+                speakResponse("Hello! I'm S, I'm here to help.")
+            }
+            howAreYouRegex.matches(trimmed) -> {
+                speakResponse("I'm doing well, thank you! I'm S, how can I help you today?")
+            }
+            thanksRegex.matches(trimmed) -> {
+                speakResponse("You're very welcome! I'm always here to help.")
+            }
+            helpRegex.matches(trimmed) -> {
+                speakResponse("I'm S. You can ask me questions, or ask me to play music in VLC, navigate with Maps, call contacts, or read your WhatsApp and text messages.")
+            }
+
+            // ── 2. WhatsApp Messages ──
+            isWhatsApp -> {
+                val fromMatch = Regex("(?i)(?:from|by)\\s+(.+)").find(trimmed)
+                val sender = fromMatch?.groupValues?.get(1)?.trim()
+                readWhatsAppMessages(fromSender = sender)
+            }
+
+            // ── 3. SMS & Text Messages ──
+            isSms && (trimmed.contains(Regex("(?i)\\b(?:read|check|get|any|latest|recent)\\b")) || trimmed.contains("unread", ignoreCase = true)) -> {
+                val fromMatch = Regex("(?i)(?:from|by)\\s+(.+)").find(trimmed)
+                val sender = fromMatch?.groupValues?.get(1)?.trim()
+                val isUnread = trimmed.contains("unread", ignoreCase = true)
+                readMessages(fromSender = sender, unreadOnly = isUnread)
+            }
+
+            // ── 4. Phone Calls ──
             callRegex.matches(trimmed) -> {
                 val spokenName = callRegex.find(trimmed)?.groupValues?.get(1) ?: return
                 val contactName = normalizeContactName(spokenName)
                 callContact(contactName)
             }
-            readWhatsAppSenderRegex.matches(trimmed) -> {
-                val sender = readWhatsAppSenderRegex.find(trimmed)?.groupValues?.get(1)?.trim()
-                readWhatsAppMessages(fromSender = sender)
-            }
-            readWhatsAppRegex.matches(trimmed) -> {
-                readWhatsAppMessages(fromSender = null)
-            }
-            readFromSenderRegex.matches(trimmed) -> {
-                val sender = readFromSenderRegex.find(trimmed)?.groupValues?.get(1)?.trim()
-                readMessages(fromSender = sender)
-            }
-            readMessagesRegex.matches(trimmed) -> {
-                val isUnread = trimmed.contains("unread", ignoreCase = true)
-                readMessages(fromSender = null, unreadOnly = isUnread)
-            }
+
+            // ── 5. Maps & Navigation ──
             distanceRegex.matches(trimmed) -> {
                 val match = distanceRegex.find(trimmed)
                 val origin = match?.groupValues?.get(1)?.trim() ?: return
@@ -303,6 +330,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val destination = directionsRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: return
                 openMapsNavigation(destination)
             }
+
+            // ── 6. Apps & VLC ──
             openAppRegex.matches(trimmed) -> {
                 val appName = openAppRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: return
                 if (!openApp(appName)) {
@@ -355,8 +384,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun readWhatsAppMessages(fromSender: String? = null) {
         if (!isNotificationServiceEnabled()) {
-            transcript = "Notification access required"
-            tts.speak("Please enable Notification Access for Nord Assistant in Settings so I can read WhatsApp messages.", TextToSpeech.QUEUE_FLUSH, null, null)
+            speakResponse("Please enable Notification Access for Nord Assistant in Settings so I can read WhatsApp messages.")
             try {
                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -376,8 +404,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             } else {
                 "No recent WhatsApp messages found."
             }
-            transcript = text
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            speakResponse(text)
             return
         }
 
@@ -397,15 +424,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
         }
 
-        val resultSpeech = sb.toString().trim()
-        transcript = resultSpeech
-        tts.speak(resultSpeech, TextToSpeech.QUEUE_FLUSH, null, null)
+        speakResponse(sb.toString().trim())
     }
 
     private fun readMessages(fromSender: String? = null, unreadOnly: Boolean = false) {
         if (checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
-            transcript = "SMS permission required"
-            tts.speak("I need permission to read your messages. Please grant SMS permission.", TextToSpeech.QUEUE_FLUSH, null, null)
+            speakResponse("I need permission to read your messages. Please grant SMS permission.")
             permissionLauncher.launch(requiredPermissions)
             return
         }
@@ -422,7 +446,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             )
 
             val selection = if (unreadOnly) "${Telephony.Sms.READ} = 0" else null
-            val sortOrder = "${Telephony.Sms.DATE} DESC LIMIT 30"
+            val sortOrder = "${Telephony.Sms.DATE} DESC LIMIT 100"
 
             val messages = mutableListOf<Pair<String, String>>()
 
@@ -454,9 +478,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             if (messages.isEmpty()) {
-                val text = if (fromSender != null) "You have no recent messages from $fromSender." else "You have no recent messages."
-                transcript = text
-                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+                val text = if (fromSender != null) "You have no recent messages from $fromSender." else "You have no recent personal messages."
+                speakResponse(text)
                 return
             }
 
@@ -477,14 +500,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            val resultSpeech = speakBuilder.toString().trim()
-            transcript = resultSpeech
-            tts.speak(resultSpeech, TextToSpeech.QUEUE_FLUSH, null, null)
+            speakResponse(speakBuilder.toString().trim())
 
         } catch (e: Exception) {
             Log.e("MainActivity", "Error reading SMS", e)
-            transcript = "Error reading messages"
-            tts.speak("Sorry, I had trouble reading your messages.", TextToSpeech.QUEUE_FLUSH, null, null)
+            speakResponse("Sorry, I had trouble reading your messages.")
         }
     }
 
@@ -853,12 +873,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         scope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) {
                 assistantState = AssistantState.THINKING
-                transcript = "Gideon is analyzing..."
+                transcript = "S is thinking..."
             }
             try {
-                // Context-aware prompt localized for Bangalore, India
-                val system = "You are Gideon, an advanced AI assistant. Answer concisely in 1-2 short sentences in plain text. Always assume Indian context for Bangalore, places, roads, and terms."
-                val fullPrompt = "$system\nUser: $query\nAssistant:"
+                // Friendly, concise prompt identifying as S
+                val system = "You are S, a friendly, concise AI voice assistant. Always identify as S. Answer in 1 short sentence in plain conversational text."
+                val fullPrompt = "$system\nUser: $query\nS:"
                 val answer = LlamaHelper.generateAnswer(fullPrompt)
                 withContext(Dispatchers.Main) {
                     speakResponse(answer)
