@@ -1,0 +1,19 @@
+# Android & Gradle
+.gradle/
+build/
+app/build/
+*.iml
+.idea/
+local.properties
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# VS Code
+.vscode/
+
+# Large Model weights (Exceeds GitHub 100MB file limit)
+# Push to device using: adb push models/*.gguf /data/local/tmp/model.gguf
+models/*.gguf
+!models/.gitkeep

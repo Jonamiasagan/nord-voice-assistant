@@ -1,0 +1,4 @@
+# Models directory placeholder
+# Download qwen2.5-1.5b-instruct-q4_k_m.gguf into this directory.
+# Then push to device with:
+# adb push models/qwen2.5-1.5b-instruct-q4_k_m.gguf /data/local/tmp/model.gguf
