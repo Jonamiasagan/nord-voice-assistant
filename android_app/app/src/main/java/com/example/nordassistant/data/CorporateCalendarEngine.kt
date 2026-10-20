@@ -496,10 +496,19 @@ object CorporateCalendarEngine {
         val testCal = (cal.clone() as Calendar).apply { set(Calendar.MONTH, month - 1) }
         val remainingSats = getSaturdaysForMonth(testCal).filter { it.isOffDay && (month != currentMonth || it.dayOfMonth > currentDay) }
 
+        val groupedHolidays = remainingHolidays.groupBy { it.name }
         val items = mutableListOf<String>()
-        for (h in remainingHolidays) {
-            items.add("${h.name} on ${h.shortDate()}")
+
+        for ((name, holidays) in groupedHolidays) {
+            if (holidays.size > 1) {
+                val dates = holidays.joinToString(", ") { it.shortDate() }
+                items.add("$name on $dates")
+            } else {
+                val h = holidays.first()
+                items.add("${h.name} on ${h.shortDate()}")
+            }
         }
+
         for (sat in remainingSats) {
             items.add("${sat.rankStr} Saturday off on ${sat.dateStr}")
         }
