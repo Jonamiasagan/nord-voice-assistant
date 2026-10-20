@@ -81,15 +81,29 @@ Built a complete, hardware-accelerated Jetpack Compose holographic UI (`GideonFa
     - Uses Linux kernel RTC alarms (`AlarmManager.RTC_WAKEUP`) — phone remains in deep sleep with **0.00% battery drain** and no polling loops.
 - **👁️ Passive Real-Time Detection (`DevilAccessibilityService.kt`)**:
   - If user manually opens Darwinbox before 10:30 AM (e.g. 9:15 AM) and taps "Check In" / "Done", DEVIL's accessibility listener captures the exact punch time in real-time with zero lag.
-- **🗣️ Spoken Shift Status Queries & Manual Time Logging**:
-  - *"When is my checkout?"* / *"What time do I checkout?"* ➡️ Spoken remaining time countdown (e.g. *"You have 3 hours and 15 minutes remaining in your 9-hour shift. Checkout scheduled for 6:15 PM."*).
-  - *"How much shift time left?"* / *"Darwinbox status"* ➡️ Real-time shift summary.
+- **🗣️ Spoken Shift Status & Departure Queries**:
+  - *"What is the time to leave?"* / *"When can I leave?"* ➡️ Direct departure answer: *"You can leave at 6:15 PM, Boss! You have 3 hours and 20 minutes remaining."*
+  - *"How much time left?"* ➡️ Exact remaining duration: *"You have 3 hours and 20 minutes left in your 9-hour shift. Your checkout is at 6:15 PM."*
+  - *"When is my checkout?"* / *"Darwinbox status"* ➡️ Full breakdown.
   - *"I checked in at 9:15 AM"* / *"Set check in time to 9:30"* ➡️ Flexible parsing for biometric/fingerprint office punch-ins.
 - **🧠 Cross-Session Memory Integration**: Logs shift timestamps directly into `BossMemoryVault.kt` so offline Qwen LLM naturally knows today's shift details in conversational prompts.
 
 ---
 
-### 8. Architecture Documentation & Git Management
+### 8. Calendar, Saturday & Darwinbox Holiday Intelligence (`CorporateCalendarEngine.kt`)
+- **📅 Saturday & Weekend Intelligence**:
+  - *"Is coming Saturday a second Saturday?"* ➡️ Computes the exact Saturday rank in the month: *"No Boss. This coming Saturday (Oct 24) is the 4th Saturday of October (an off day). The 2nd Saturday was on October 10."*
+  - *"How many Saturdays do we have this month?"* ➡️ Precise list and count: *"We have 5 Saturdays in October: 1st (Oct 3), 2nd (Oct 10 - Off), 3rd (Oct 17), 4th (Oct 24 - Off), 5th (Oct 31)."*
+  - *"What is this week?"* / *"Which week is this?"* ➡️ Live week telemetry: *"We are in the 4th week of October 2026 (Week 43 of the year), running from Monday, Oct 19 to Sunday, Oct 25."*
+- **🏖️ Darwinbox Leaves & Corporate Holidays**:
+  - *"When is the next holiday?"* ➡️ Accurate countdown to the next holiday, days remaining, and long weekend indicators (e.g. Diwali, Dussehra, Republic Day, Christmas).
+  - *"What holidays do we have this month / in November?"* ➡️ Complete list of public and corporate holidays for that month.
+  - *"Is coming Friday/Monday a holiday?"* ➡️ Instant check for upcoming days.
+  - Built-in Indian & global corporate holiday directory + voice support for custom company holidays.
+
+---
+
+### 9. Architecture Documentation & Git Management
 - **Kotlin vs. Flutter Architectural Decision**: Documented the engineering rationale in `ARCHITECTURE_DECISION_KOTLIN_VS_FLUTTER.md` and `.adoc` explaining why Native Android (Kotlin + Compose) was chosen over Flutter for low-level OS listeners, NDK zero-copy LLM inference, and OxygenOS process-killer resilience.
 - **Clean Repository Structure**: Configured `.gitignore` to prevent large binary models (>100 MB) from blocking GitHub pushes, committed all project files, and synced to GitHub branch `nord-voice-assistant_Phase1`.
 

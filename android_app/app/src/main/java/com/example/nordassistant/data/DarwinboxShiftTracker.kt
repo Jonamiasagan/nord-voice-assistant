@@ -179,6 +179,82 @@ object DarwinboxShiftTracker {
     }
 
     /**
+     * Answers: "What is the time to leave?" / "When can I leave?".
+     */
+    fun getTimeToLeave(context: Context): String {
+        val prefs = getPrefs(context)
+        val shiftDate = prefs.getString(KEY_SHIFT_DATE, null)
+        val today = getTodayDateString()
+
+        if (shiftDate != today || !isCheckedInToday(context)) {
+            return "No Darwinbox check-in has been recorded for today, Boss. Would you like me to clock you in now?"
+        }
+
+        val targetCheckoutMs = prefs.getLong(KEY_TARGET_CHECKOUT_MS, 0L)
+        val isCheckedOut = prefs.getBoolean(KEY_IS_CHECKED_OUT, false)
+        val now = System.currentTimeMillis()
+        val checkoutStr = formatTime(targetCheckoutMs)
+
+        if (isCheckedOut) {
+            val checkOutMs = prefs.getLong(KEY_CHECKOUT_MS, 0L)
+            val checkOutStr = if (checkOutMs > 0L) formatTime(checkOutMs) else "earlier"
+            return "You are already free to leave, Boss! You completed your shift and checked out on Darwinbox at $checkOutStr."
+        }
+
+        val diffMs = targetCheckoutMs - now
+        return if (diffMs > 0) {
+            val remainingHours = (diffMs / (1000 * 60 * 60)).toInt()
+            val remainingMins = ((diffMs % (1000 * 60 * 60)) / (1000 * 60)).toInt()
+            val timePart = when {
+                remainingHours > 0 && remainingMins > 0 -> "$remainingHours hours and $remainingMins minutes"
+                remainingHours > 0 -> "$remainingHours hours"
+                else -> "$remainingMins minutes"
+            }
+            "You can leave at $checkoutStr, Boss! You have $timePart remaining in your 9-hour shift."
+        } else {
+            val overdueMins = ((-diffMs) / (1000 * 60)).toInt()
+            "You can leave immediately, Boss! Your 9-hour shift finished $overdueMins minutes ago at $checkoutStr. Would you like me to clock you out on Darwinbox?"
+        }
+    }
+
+    /**
+     * Answers: "How much time left?" / "How much shift time is left?".
+     */
+    fun getRemainingTimeOnly(context: Context): String {
+        val prefs = getPrefs(context)
+        val shiftDate = prefs.getString(KEY_SHIFT_DATE, null)
+        val today = getTodayDateString()
+
+        if (shiftDate != today || !isCheckedInToday(context)) {
+            return "No Darwinbox check-in has been logged for today, Boss. Would you like me to clock you in now?"
+        }
+
+        val targetCheckoutMs = prefs.getLong(KEY_TARGET_CHECKOUT_MS, 0L)
+        val isCheckedOut = prefs.getBoolean(KEY_IS_CHECKED_OUT, false)
+        val now = System.currentTimeMillis()
+        val checkoutStr = formatTime(targetCheckoutMs)
+
+        if (isCheckedOut) {
+            return "Your shift is already complete, Boss! Zero time left."
+        }
+
+        val diffMs = targetCheckoutMs - now
+        return if (diffMs > 0) {
+            val remainingHours = (diffMs / (1000 * 60 * 60)).toInt()
+            val remainingMins = ((diffMs % (1000 * 60 * 60)) / (1000 * 60)).toInt()
+            val timePart = when {
+                remainingHours > 0 && remainingMins > 0 -> "$remainingHours hours and $remainingMins minutes"
+                remainingHours > 0 -> "$remainingHours hours"
+                else -> "$remainingMins minutes"
+            }
+            "You have $timePart left in your 9-hour shift, Boss. Your checkout is at $checkoutStr."
+        } else {
+            val overdueMins = ((-diffMs) / (1000 * 60)).toInt()
+            "Zero time left, Boss! Your shift was completed $overdueMins minutes ago at $checkoutStr. Time to check out!"
+        }
+    }
+
+    /**
      * Parses explicit spoken time (e.g. "9:15 am", "9.15", "9 15 am", "915 am", "10 am") and sets check-in.
      */
     fun recordManualCheckInTime(context: Context, timeSpoken: String): ShiftInfo? {

@@ -37,6 +37,7 @@ import android.app.NotificationManager
 import com.example.nordassistant.data.BossMemoryVault
 import com.example.nordassistant.data.DarwinboxShiftTracker
 import com.example.nordassistant.data.DarwinboxAlarmReceiver
+import com.example.nordassistant.data.CorporateCalendarEngine
 import com.example.nordassistant.protocol.DevilProtocol
 import com.example.nordassistant.protocol.DevilProtocolManager
 import com.example.nordassistant.security.BossSecurityManager
@@ -1319,14 +1320,80 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 // Handled directly inside handleMediaAndVlcCommand
             }
 
-            // ── 9. Darwinbox Attendance & 9-Hour Shift Tracking ──
-            // 9a. Shift status & checkout queries ("when is my checkout", "what time is checkout", "shift status", "how much shift time left", "darwinbox status")
-            trimmed.contains(Regex("(?i)\\b(when\\s*(is|do\\s*i)?\\s*(my\\s*)?(check\\s*out|checkout|clock\\s*out|leave)|what\\s*time\\s*(is|do\\s*i)?\\s*(my\\s*)?(check\\s*out|checkout|clock\\s*out|leave|check\\s*in|checkin)|how\\s*much\\s*(shift\\s*time|time)\\s*(is\\s*)?left|shift\\s*status|darwin\\s*box\\s*status|attendance\\s*status|did\\s*i\\s*(check\\s*in|check\\s*out|checkout)|when\\s*did\\s*i\\s*check\\s*in)\\b")) -> {
+            // ── 9. Darwinbox Attendance, 9-Hour Shift, Calendar & Holiday Intelligence ──
+            // 9a-1. Time to leave & departure queries ("what is the time to leave", "when can i leave", "when to leave", "what time should i leave")
+            trimmed.contains(Regex("(?i)\\b((what\\s*is\\s*the\\s*)?time\\s*to\\s*leave|when\\s*(can|should|do)\\s*i\\s*leave|when\\s*to\\s*leave|what\\s*time\\s*(can|should|do)\\s*i\\s*leave|time\\s*to\\s*go\\s*home|can\\s*i\\s*leave(\\s*now)?)\\b")) -> {
+                val ans = DarwinboxShiftTracker.getTimeToLeave(this)
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // 9a-2. Time remaining queries ("how much time left", "how much time is left", "time left in shift", "shift time remaining")
+            trimmed.contains(Regex("(?i)\\b(how\\s*much\\s*time\\s*(is\\s*)?left|time\\s*left\\s*in\\s*(my\\s*)?shift|how\\s*many\\s*hours\\s*left|shift\\s*time\\s*remaining|how\\s*long\\s*(until|till)\\s*(check\\s*out|checkout|leave))\\b")) -> {
+                val ans = DarwinboxShiftTracker.getRemainingTimeOnly(this)
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // 9a-3. Shift status & checkout queries ("when is my checkout", "what time is checkout", "shift status", "darwinbox status")
+            trimmed.contains(Regex("(?i)\\b(when\\s*(is|do\\s*i)?\\s*(my\\s*)?(check\\s*out|checkout|clock\\s*out)|what\\s*time\\s*(is|do\\s*i)?\\s*(my\\s*)?(check\\s*out|checkout|clock\\s*out|check\\s*in|checkin)|shift\\s*status|darwin\\s*box\\s*status|attendance\\s*status|did\\s*i\\s*(check\\s*in|check\\s*out|checkout)|when\\s*did\\s*i\\s*check\\s*in)\\b")) -> {
                 val status = DarwinboxShiftTracker.getShiftStatus(this)
                 speakResponse(status, continueConversation = true)
             }
 
-            // 9b. Manual check-in logging ("I checked in at 9:15 am", "we checked in at 9:15 am", "set check in time to 9:15 am", "record check in at 9:15 am")
+            // ── 9b. Calendar & Saturday Intelligence ──
+            // Saturday queries ("is coming saturday a second saturday", "is next saturday 2nd saturday")
+            (trimmed.contains(Regex("(?i)\\b(second|2nd)\\s*saturday\\b")) &&
+             trimmed.contains(Regex("(?i)\\b(is|coming|next|this|approaching)\\b"))) -> {
+                val ans = CorporateCalendarEngine.checkComingSaturday(targetRank = 2)
+                speakResponse(ans, continueConversation = true)
+            }
+
+            (trimmed.contains(Regex("(?i)\\b(fourth|4th)\\s*saturday\\b")) &&
+             trimmed.contains(Regex("(?i)\\b(is|coming|next|this|approaching)\\b"))) -> {
+                val ans = CorporateCalendarEngine.checkComingSaturday(targetRank = 4)
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // Generic coming Saturday query ("is coming saturday a holiday", "what saturday is coming", "is this saturday working")
+            trimmed.contains(Regex("(?i)\\b(coming|next|this)\\s*saturday\\b")) -> {
+                val ans = CorporateCalendarEngine.checkComingSaturday(null)
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // Total Saturdays query ("how many saturdays do we have", "how many saturdays in this month", "list saturdays")
+            trimmed.contains(Regex("(?i)\\b(how\\s*many\\s*saturdays|saturdays\\s*(do\\s*we\\s*have|in\\s*this\\s*month|this\\s*month)|list\\s*(all\\s*)?saturdays)\\b")) -> {
+                val ans = CorporateCalendarEngine.getMonthSaturdaysSummary()
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // Current week telemetry ("what is this week", "which week is this", "what week are we in")
+            (trimmed.contains(Regex("(?i)\\b(what|which)\\s*(is\\s*)?(this|the|current)\\s*week\\b")) ||
+             trimmed.contains(Regex("(?i)\\bweek\\s*of\\s*the\\s*(month|year)\\b"))) -> {
+                val ans = CorporateCalendarEngine.getWeekInfo()
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // ── 9c. Darwinbox Leaves & Holiday Intelligence ──
+            // Next holiday queries ("when is the next holiday", "what is the next holiday", "upcoming holiday")
+            trimmed.contains(Regex("(?i)\\b(when\\s*is\\s*(the\\s*)?next\\s*holiday|what\\s*is\\s*(the\\s*)?next\\s*holiday|next\\s*holiday|upcoming\\s*holiday)\\b")) -> {
+                val ans = CorporateCalendarEngine.getNextHoliday()
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // Monthly / Company holiday queries ("what holidays do we have this month", "darwinbox holidays", "leave holidays", "list holidays")
+            trimmed.contains(Regex("(?i)\\b(holidays?\\s*(in|for)?\\s*(this\\s*month|darwin\\s*box|leaves?)|darwin\\s*box\\s*holidays?|leave\\s*holidays?|company\\s*holidays?|list\\s*(all\\s*)?holidays?)\\b")) -> {
+                val ans = CorporateCalendarEngine.getHolidaysForMonth()
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // Specific day holiday check ("is coming friday a holiday", "is monday a holiday", "is tomorrow a holiday")
+            trimmed.contains(Regex("(?i)\\b(is\\s*(tomorrow|coming|next|this)?\\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\s*(a\\s*)?holiday)\\b")) -> {
+                val match = Regex("(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)").find(trimmed)
+                val day = match?.value ?: "friday"
+                val ans = CorporateCalendarEngine.isUpcomingDayHoliday(day)
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // 9d. Manual check-in logging ("I checked in at 9:15 am", "we checked in at 9:15 am", "set check in time to 9:15 am", "record check in at 9:15 am")
             (trimmed.contains(Regex("(?i)\\b(checked\\s*in|chickened\\s*in|punched\\s*in|clocked\\s*in|check\\s*in\\s*time|set\\s*check\\s*in|record\\s*check\\s*in)\\b")) &&
              trimmed.contains(Regex("(?i)\\b(\\d{1,2}[:.\\s]?\\d{0,2}\\s*(am|pm)?|at\\s+\\d{1,2})\\b"))) -> {
                 val info = DarwinboxShiftTracker.recordManualCheckInTime(this, trimmed)
@@ -1340,12 +1407,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            // 9c. Darwinbox Attendance Automation (Check-In)
+            // 9e. Darwinbox Attendance Automation (Check-In)
             trimmed.contains(Regex("(?i)\\b(check\\s*in|checkin|chicken|chick\\s*in|cheque\\s*in|clock\\s*in|clockin|punch\\s*in|punchin|mark\\s*attendance|do\\s*attendance|attendance\\s*in|darwin\\s*box|darwinbox)\\b")) -> {
                 handleDarwinboxAttendance(DevilAccessibilityService.DarwinboxAction.CHECK_IN)
             }
 
-            // 9d. Darwinbox Attendance Automation (Check-Out)
+            // 9f. Darwinbox Attendance Automation (Check-Out)
             trimmed.contains(Regex("(?i)\\b(check\\s*out|checkout|chick\\s*out|cheque\\s*out|clock\\s*out|clockout|punch\\s*out|punchout|attendance\\s*out)\\b")) -> {
                 handleDarwinboxAttendance(DevilAccessibilityService.DarwinboxAction.CHECK_OUT)
             }
