@@ -1393,29 +1393,44 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             // ── 9c. Darwinbox Leaves & Holiday Intelligence ──
-            // 9c-0. Today's holiday status ("is today a holiday", "today is a holiday", "did you check darwinbox that today is a holiday", "why is today a holiday", "how do you know today is a holiday")
-            trimmed.contains(Regex("(?i)\\b(is\\s*today\\s*(a\\s*)?holiday|today\\s*(is\\s*)?(a\\s*)?holiday|why\\s*(is\\s*)?today\\s*(is\\s*)?(a\\s*)?holiday|how\\s*(do\\s*)?you\\s*know\\s*(that\\s*)?(it\\s*is\\s*a\\s*|today\\s*is\\s*(a\\s*)?)?holiday|today'?s?\\s*holiday|holiday\\s*today|check\\s*(the\\s*)?darwinbox\\s*(that\\s*)?today|check\\s*darwinbox.*holiday)\\b")) -> {
+            // 9c-1. Today's holiday status ("is today a holiday", "today is a holiday", "did you check darwinbox that today is a holiday", "why is today a holiday", "how do you know today is a holiday", "is today holiday", "check holiday today")
+            trimmed.contains(Regex("(?i)\\b(is\\s*today\\s*(a\\s*)?holiday|today\\s*(is\\s*)?(a\\s*)?holiday|why\\s*(is\\s*)?today\\s*(is\\s*)?(a\\s*)?holiday|how\\s*(do\\s*)?you\\s*know\\s*(that\\s*)?(it\\s*is\\s*a\\s*|today\\s*is\\s*(a\\s*)?)?holiday|today'?s?\\s*holiday|holiday\\s*today|today.*holiday|holiday.*today)\\b")) -> {
                 val ans = CorporateCalendarEngine.getTodayHolidayStatus()
                 speakResponse(ans, continueConversation = true)
             }
 
-            // Next holiday queries ("when is the next holiday", "what is the next holiday", "upcoming holiday")
+            // 9c-2. Next upcoming holiday queries ("when is the next holiday", "what is the next holiday", "upcoming holiday")
             trimmed.contains(Regex("(?i)\\b(when\\s*is\\s*(the\\s*)?next\\s*holiday|what\\s*is\\s*(the\\s*)?next\\s*holiday|next\\s*holiday|upcoming\\s*holiday)\\b")) -> {
                 val ans = CorporateCalendarEngine.getNextHoliday()
                 speakResponse(ans, continueConversation = true)
             }
 
-            // Monthly / Company holiday queries ("what holidays do we have this month", "darwinbox holidays", "leave holidays", "list holidays")
-            trimmed.contains(Regex("(?i)\\b(holidays?\\s*(in|for)?\\s*(this\\s*month|darwin\\s*box|leaves?)|darwin\\s*box\\s*holidays?|leave\\s*holidays?|company\\s*holidays?|list\\s*(all\\s*)?holidays?)\\b")) -> {
-                val ans = CorporateCalendarEngine.getHolidaysForMonth()
+            // 9c-3. Darwinbox & Monthly Holiday queries ("holiday in darwinbox", "darwinbox holiday", "what are the holidays in darwinbox", "leaves in darwinbox", "holidays this month", "list holidays", "leave section holiday")
+            // Catches ANY sentence with 'holiday'/'holidays'/'leave'/'leaves' referencing darwinbox, month, or company
+            ((trimmed.contains(Regex("(?i)\\b(holidays?|leaves?)\\b")) &&
+              trimmed.contains(Regex("(?i)\\b(darwinbox|darwin\\s*box|month|calendar|office|company|section|list)\\b"))) ||
+             trimmed.contains(Regex("(?i)\\b(list\\s*(all\\s*)?holidays?|what\\s*(are\\s*the\\s*)?holidays?\\b)"))) -> {
+                val todayStatus = CorporateCalendarEngine.getTodayHolidayStatus()
+                val monthHolidays = CorporateCalendarEngine.getHolidaysForMonth()
+                val ans = if (todayStatus.startsWith("Yes Boss!")) {
+                    "$todayStatus Also, for the rest of this month: $monthHolidays"
+                } else {
+                    monthHolidays
+                }
                 speakResponse(ans, continueConversation = true)
             }
 
-            // Specific day holiday check ("is coming friday a holiday", "is monday a holiday", "is tomorrow a holiday")
+            // 9c-4. Specific day holiday check ("is coming friday a holiday", "is monday a holiday", "is tomorrow a holiday")
             trimmed.contains(Regex("(?i)\\b(is\\s*(tomorrow|coming|next|this)?\\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\s*(a\\s*)?holiday)\\b")) -> {
                 val match = Regex("(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)").find(trimmed)
                 val day = match?.value ?: "friday"
                 val ans = CorporateCalendarEngine.isUpcomingDayHoliday(day)
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // 9c-5. General holiday fallback ("any holiday", "tell me holiday", "check holiday")
+            trimmed.contains(Regex("(?i)\\b(holidays?|leave\\s*section)\\b")) -> {
+                val ans = CorporateCalendarEngine.getTodayHolidayStatus()
                 speakResponse(ans, continueConversation = true)
             }
 
@@ -1434,12 +1449,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             // 9e. Darwinbox Attendance Automation (Check-In)
-            trimmed.contains(Regex("(?i)\\b(check\\s*in|checkin|chicken|chick\\s*in|cheque\\s*in|clock\\s*in|clockin|punch\\s*in|punchin|mark\\s*attendance|do\\s*attendance|attendance\\s*in|darwin\\s*box|darwinbox)\\b")) -> {
+            // MUST explicitly ask for check-in or attendance, and NOT be asking about holidays, leaves, or calendar!
+            (!trimmed.contains(Regex("(?i)\\b(holiday|holidays|leave|leaves|calendar|when|how\\s*much|time\\s*left|status)\\b")) &&
+             trimmed.contains(Regex("(?i)\\b(check\\s*in|checkin|chicken\\s*in|chick\\s*in|cheque\\s*in|clock\\s*in|clockin|punch\\s*in|punchin|mark\\s*attendance|do\\s*attendance|attendance\\s*in)\\b"))) -> {
                 handleDarwinboxAttendance(DevilAccessibilityService.DarwinboxAction.CHECK_IN)
             }
 
             // 9f. Darwinbox Attendance Automation (Check-Out)
-            trimmed.contains(Regex("(?i)\\b(check\\s*out|checkout|chick\\s*out|cheque\\s*out|clock\\s*out|clockout|punch\\s*out|punchout|attendance\\s*out)\\b")) -> {
+            (!trimmed.contains(Regex("(?i)\\b(holiday|holidays|leave|leaves|calendar|when|how\\s*much|time\\s*left|status)\\b")) &&
+             trimmed.contains(Regex("(?i)\\b(check\\s*out|checkout|chick\\s*out|cheque\\s*out|clock\\s*out|clockout|punch\\s*out|punchout|attendance\\s*out)\\b"))) -> {
                 handleDarwinboxAttendance(DevilAccessibilityService.DarwinboxAction.CHECK_OUT)
             }
 
