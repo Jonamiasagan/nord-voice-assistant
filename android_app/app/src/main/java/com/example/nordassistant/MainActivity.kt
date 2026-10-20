@@ -1385,8 +1385,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakResponse(ans, continueConversation = true)
             }
 
-            // Current week telemetry ("what is this week", "which week is this", "what week are we in")
-            (trimmed.contains(Regex("(?i)\\b(what|which)\\s*(is\\s*)?(this|the|current)\\s*week\\b")) ||
+            // Current week telemetry ("what is this week", "what week is this week", "which week is this", "what week are we in", "what week is it")
+            (trimmed.contains(Regex("(?i)\\b(what|which)\\s*week\\b")) ||
+             trimmed.contains(Regex("(?i)\\b(what|which)\\s*(is\\s*)?(this|the|current)\\s*week\\b")) ||
+             trimmed.contains(Regex("(?i)\\b(current\\s*week|week\\s*number)\\b")) ||
              trimmed.contains(Regex("(?i)\\bweek\\s*of\\s*the\\s*(month|year)\\b"))) -> {
                 val ans = CorporateCalendarEngine.getWeekInfo()
                 speakResponse(ans, continueConversation = true)
