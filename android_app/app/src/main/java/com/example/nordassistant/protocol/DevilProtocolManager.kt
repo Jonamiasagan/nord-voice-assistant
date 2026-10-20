@@ -163,15 +163,18 @@ object DevilProtocolManager {
         if (lower.contains("barn door") || lower.contains("barndoor") || lower.contains("barn-door")) return true
         if (lower.contains("meeting mode") || lower.contains("silent protocol")) return true
 
-        // Regex for phonetic variations of "barn" followed optionally by "door" or "protocol"
+        // Regex for phonetic variations of "barn" followed explicitly by door or protocol
         val pattern = Regex(
-            "(?i)\\b(ba+r+n|ba+rn|ba+n|ba+h+n|ba+r+o+n|bu+r+n|bo+r+n|bo+r+ne|bha+r+n|bha+n|band|bound)\\s*(door|dor|dhor|protocol|protocal|mode)?\\b"
+            "(?i)\\b(ba+r+n|ba+rn|ba+n|ba+h+n|ba+r+o+n|bu+r+n|bo+r+n|bo+r+ne|bha+r+n|bha+n)\\s*(door|dor|dhor|protocol|protocal|mode)?\\b"
         )
-        return pattern.containsMatchIn(lower) && (
+        if (pattern.containsMatchIn(lower) && (
             lower.contains("door") || lower.contains("dor") || lower.contains("protocol") ||
             lower.contains("mode") || lower.contains("start") || lower.contains("turn on") ||
             lower.contains("activate") || lower.contains("enter")
-        )
+        )) return true
+
+        // For "band" or "bound", require explicit "door"
+        return lower.contains(Regex("(?i)\\b(band|bound)\\s+(door|dor|dhor)\\b"))
     }
 
     /**
@@ -196,15 +199,21 @@ object DevilProtocolManager {
      */
     fun isBabyMonitorTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
-        return lower.contains(Regex("(?i)\\b(baby\\s*monitor|babymonitor|sunset\\s*protocol|chill\\s*(mode|protocol)?|leisure\\s*mode|relax\\s*mode|evening\\s*mode)\\b"))
+        return lower.contains(Regex("(?i)\\b(baby\\s*monitor|babymonitor|sunset\\s*protocol|chill\\s*(mode|protocol)|leisure\\s*mode|relax\\s*mode|evening\\s*mode|switch\\s+to\\s+chill)\\b"))
     }
 
     /**
      * Checks if input matches F.R.I.D.A.Y. Protocol (Tactical companion mode).
+     * Crucial: Rejects calendar/holiday/shift/date queries to prevent collisions with the weekday "Friday".
      */
     fun isFridayTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
-        return lower.contains(Regex("(?i)\\b(friday|fryday|f\\.r\\.i\\.d\\.a\\.y\\.|switch\\s+to\\s+friday|protocol\\s+friday|friday\\s+mode|companion\\s+mode)\\b"))
+        // If input contains calendar, holiday, working day, leave, shift, or date inquiry terms, it is NEVER a protocol trigger
+        if (lower.contains(Regex("(?i)\\b(holiday|holidays|off|working|leave|leaves|shift|calendar|schedule|meeting|date|day|coming|this|next|last|every|on\\s+friday|is\\s+friday)\\b"))) {
+            return false
+        }
+        return lower.contains(Regex("(?i)\\b(switch\\s+to\\s+friday|protocol\\s+friday|friday\\s+protocol|friday\\s+mode|activate\\s+friday|engage\\s+friday|hey\\s+friday|hello\\s+friday|hi\\s+friday|f\\.r\\.i\\.d\\.a\\.y\\.|companion\\s+mode)\\b")) ||
+               lower == "friday" || lower == "fryday"
     }
 
     /**

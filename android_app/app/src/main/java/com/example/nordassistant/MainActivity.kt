@@ -1085,7 +1085,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         // 4. Recall a specific fact
         val recallRegex = Regex("(?i)^(?:what(?:'s|\\s+is|\\s+was)|do\\s+you\\s+(?:know|remember)|recall)\\s+(?:my\\s+|about\\s+my\\s+|about\\s+)?(.+?)(?:\\s*\\?)?$")
-        if (recallRegex.matches(trimmed) && !trimmed.contains("weather") && !trimmed.contains("time") && !trimmed.contains("date") && !trimmed.contains("name")) {
+        if (recallRegex.matches(trimmed) && !trimmed.contains("weather") && !trimmed.contains("time") && !trimmed.contains("date") && !trimmed.contains("name") && !trimmed.contains("holiday") && !trimmed.contains("shift") && !trimmed.contains("leave") && !trimmed.contains("calendar") && !trimmed.contains("protocol")) {
             val target = recallRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: ""
             val item = memoryVault.recall(target)
             if (item != null) {
@@ -1402,62 +1402,69 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakResponse(ans, continueConversation = true)
             }
 
-            // 9c-1. Today's holiday status ("is today a holiday", "today is a holiday", "did you check darwinbox that today is a holiday", "why is today a holiday", "how do you know today is a holiday", "is today holiday", "check holiday today")
-            trimmed.contains(Regex("(?i)\\b(is\\s*today\\s*(a\\s*)?holiday|today\\s*(is\\s*)?(a\\s*)?holiday|why\\s*(is\\s*)?today\\s*(is\\s*)?(a\\s*)?holiday|how\\s*(do\\s*)?you\\s*know\\s*(that\\s*)?(it\\s*is\\s*a\\s*|today\\s*is\\s*(a\\s*)?)?holiday|today'?s?\\s*holiday|holiday\\s*today|today.*holiday|holiday.*today)\\b")) -> {
+            // 9c-1. Remaining / Left holidays in this month ("what are the holidays left in this month", "holidays left this month", "remaining holidays in this month", "how many holidays left", "any holidays left")
+            ((trimmed.contains(Regex("(?i)\\b(left|remaining|balance|pending)\\b")) &&
+              trimmed.contains(Regex("(?i)\\b(holidays?|leaves?)\\b"))) ||
+             trimmed.contains(Regex("(?i)\\b(holidays?\\s*after\\s*today|holidays?\\s*from\\s*today)\\b"))) -> {
+                val targetMonth = CorporateCalendarEngine.extractMonthFromQuery(trimmed)
+                val ans = CorporateCalendarEngine.getRemainingHolidaysForMonth(targetMonth)
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // 9c-2. Today's holiday status ("is today a holiday", "today is a holiday", "did you check darwinbox that today is a holiday", "why is today a holiday", "how do you know today is a holiday", "is today holiday", "check holiday today")
+            (!trimmed.contains(Regex("(?i)\\b(left|remaining|after|tomorrow|next|balance|pending)\\b")) &&
+             trimmed.contains(Regex("(?i)\\b(is\\s*today\\s*(a\\s*)?(holiday|off|working(\\s*day)?)|today\\s*(is\\s*)?(a\\s*)?(holiday|off|working(\\s*day)?)|why\\s*(is\\s*)?today\\s*(is\\s*)?(a\\s*)?holiday|how\\s*(do\\s*)?you\\s*know\\s*(that\\s*)?(it\\s*is\\s*a\\s*|today\\s*is\\s*(a\\s*)?)?holiday|today'?s?\\s*holiday|holiday\\s*today)\\b"))) -> {
                 val ans = CorporateCalendarEngine.getTodayHolidayStatus()
                 speakResponse(ans, continueConversation = true)
             }
 
-            // 9c-1b. Day after tomorrow holiday status ("is day after tomorrow a holiday", "is day after tomorrow off")
+            // 9c-3. Day after tomorrow holiday status ("is day after tomorrow a holiday", "is day after tomorrow off")
             trimmed.contains(Regex("(?i)\\b(day\\s*after\\s*tomorrow.*(holiday|off|working)|is\\s*day\\s*after\\s*tomorrow\\s*(is\\s*)?(a\\s*)?(holiday|off|working))\\b")) -> {
                 val ans = CorporateCalendarEngine.getDayAfterTomorrowHolidayStatus()
                 speakResponse(ans, continueConversation = true)
             }
 
-            // 9c-1c. Tomorrow's holiday status ("is tomorrow a holiday", "is tomorrow is a holiday", "tomorrow holiday", "is tomorrow off", "is tomorrow working")
-            trimmed.contains(Regex("(?i)\\b(is\\s*tomorrow\\s*(is\\s*)?(a\\s*)?(holiday|off|working(\\s*day)?)|tomorrow\\s*(is\\s*)?(a\\s*)?(holiday|off|working(\\s*day)?)|check\\s*tomorrow.*(holiday|off|working)|tomorrow'?s?\\s*holiday|holiday.*tomorrow)\\b")) -> {
+            // 9c-4. Tomorrow's holiday status ("is tomorrow a holiday", "is tomorrow is a holiday", "tomorrow holiday", "is tomorrow off", "is tomorrow working")
+            trimmed.contains(Regex("(?i)\\b(is\\s*tomorrow\\s*(is\\s*)?(a\\s*)?(holiday|off|working(\\s*day)?)|tomorrow\\s*(is\\s*)?(a\\s*)?(holiday|off|working(\\s*day)?)|check\\s*tomorrow.*(holiday|off|working)|tomorrow'?s?\\s*holiday|holiday\\s*tomorrow)\\b")) -> {
                 val ans = CorporateCalendarEngine.getTomorrowHolidayStatus()
                 speakResponse(ans, continueConversation = true)
             }
 
-            // 9c-2. Next upcoming holiday queries ("when is the next holiday", "what is the next holiday", "what is the next coming holiday", "upcoming holiday", "coming holiday")
+            // 9c-5. Next upcoming holiday queries ("when is the next holiday", "what is the next holiday", "what is the next coming holiday", "upcoming holiday", "coming holiday")
             trimmed.contains(Regex("(?i)\\b((when|what)\\s*is\\s*(the\\s*)?(next|upcoming|coming)\\s*(coming\\s*)?holiday|next\\s*(coming\\s*)?holiday|upcoming\\s*holiday|coming\\s*holiday)\\b")) -> {
                 val ans = CorporateCalendarEngine.getNextHoliday()
                 speakResponse(ans, continueConversation = true)
             }
 
-            // 9c-2b. Remaining / Left holidays in this month ("what are the holidays left in this month", "holidays left this month", "remaining holidays in this month", "how many holidays left")
-            trimmed.contains(Regex("(?i)\\b(holidays?\\s*(left|remaining)|(remaining|left)\\s*holidays?|how\\s*many\\s*holidays?\\s*(are\\s*)?(left|remaining)|holidays?\\s*left\\s*in\\s*this\\s*month|what\\s*(are\\s*the\\s*)?holidays?\\s*left)\\b")) -> {
-                val ans = CorporateCalendarEngine.getRemainingHolidaysForMonth()
-                speakResponse(ans, continueConversation = true)
-            }
-
-            // 9c-3. Darwinbox & Monthly Holiday queries ("holiday in darwinbox", "darwinbox holiday", "what are the holidays in darwinbox", "leaves in darwinbox", "holidays this month", "list holidays", "leave section holiday")
-            // Catches ANY sentence with 'holiday'/'holidays'/'leave'/'leaves' referencing darwinbox, month, or company
-            ((trimmed.contains(Regex("(?i)\\b(holidays?|leaves?)\\b")) &&
-              trimmed.contains(Regex("(?i)\\b(darwinbox|darwin\\s*box|month|calendar|office|company|section|list)\\b"))) ||
-             trimmed.contains(Regex("(?i)\\b(list\\s*(all\\s*)?holidays?|what\\s*(are\\s*the\\s*)?holidays?\\b)"))) -> {
-                val monthHolidays = CorporateCalendarEngine.getHolidaysForMonth()
-                speakResponse(monthHolidays, continueConversation = true)
-            }
-
-            // 9c-4. Specific day holiday check ("is coming friday a holiday", "is monday a holiday", "is friday off")
-            trimmed.contains(Regex("(?i)\\b(is\\s*(coming|next|this)?\\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\s*(a\\s*)?(holiday|off|working(\\s*day)?)|(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\s*(is\\s*)?(a\\s*)?(holiday|off|working))\\b")) -> {
+            // 9c-6. Specific day holiday check ("is coming friday a holiday", "is monday a holiday", "is friday off", "is there a holiday on friday", "do we have a holiday on wednesday")
+            (trimmed.contains(Regex("(?i)\\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b")) &&
+             trimmed.contains(Regex("(?i)\\b(holiday|holidays|off|working)\\b"))) -> {
                 val match = Regex("(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)").find(trimmed)
                 val day = match?.value ?: "friday"
                 val ans = CorporateCalendarEngine.isUpcomingDayHoliday(day)
                 speakResponse(ans, continueConversation = true)
             }
 
-            // 9c-4b. Specific date holiday query ("is 21st a holiday", "is 26 a holiday", "is october 21 a holiday", "is 26th holiday")
+            // 9c-7. Specific date holiday query ("is 21st a holiday", "is 26 a holiday", "is october 21 a holiday", "is 26th holiday")
             trimmed.contains(Regex("(?i)\\b(is\\s*(the\\s*)?(\\d{1,2})(st|nd|rd|th)?(\\s*of\\s*([a-z]+)|\\s*([a-z]+))?\\s*(a\\s*)?(holiday|off|working)|is\\s*([a-z]+)\\s*(\\d{1,2})(st|nd|rd|th)?\\s*(a\\s*)?(holiday|off|working)|check\\s*(\\d{1,2})(st|nd|rd|th)?\\s*holiday)\\b")) -> {
                 val ans = CorporateCalendarEngine.checkSpecificDateSpoken(trimmed)
                 speakResponse(ans, continueConversation = true)
             }
 
-            // 9c-5. General holiday fallback ("any holiday", "tell me holiday", "check holiday")
+            // 9c-8. Darwinbox & Monthly Holiday queries ("holiday in darwinbox", "darwinbox holiday", "what are the holidays in darwinbox", "leaves in darwinbox", "holidays this month", "list holidays", "leave section holiday")
+            // Catches ANY sentence with 'holiday'/'holidays'/'leave'/'leaves' referencing darwinbox, month, or company
+            ((trimmed.contains(Regex("(?i)\\b(holidays?|leaves?)\\b")) &&
+              trimmed.contains(Regex("(?i)\\b(darwinbox|darwin\\s*box|month|calendar|office|company|section|list)\\b"))) ||
+             trimmed.contains(Regex("(?i)\\b(list\\s*(all\\s*)?holidays?|what\\s*(are\\s*the\\s*)?holidays?\\b)"))) -> {
+                val targetMonth = CorporateCalendarEngine.extractMonthFromQuery(trimmed)
+                val monthHolidays = CorporateCalendarEngine.getHolidaysForMonth(targetMonth)
+                speakResponse(monthHolidays, continueConversation = true)
+            }
+
+            // 9c-9. General holiday fallback ("any holiday", "tell me holiday", "check holiday")
             trimmed.contains(Regex("(?i)\\b(holidays?|leave\\s*section)\\b")) -> {
-                val ans = CorporateCalendarEngine.getRemainingHolidaysForMonth()
+                val targetMonth = CorporateCalendarEngine.extractMonthFromQuery(trimmed)
+                val ans = CorporateCalendarEngine.getRemainingHolidaysForMonth(targetMonth)
                 speakResponse(ans, continueConversation = true)
             }
 

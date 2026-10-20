@@ -484,7 +484,8 @@ object CorporateCalendarEngine {
     ): String {
         val currentDay = cal.get(Calendar.DAY_OF_MONTH)
         val currentMonth = cal.get(Calendar.MONTH) + 1
-        val monthName = SimpleDateFormat("MMMM", Locale.getDefault()).format(cal.time)
+        val targetCal = Calendar.getInstance().apply { set(Calendar.MONTH, month - 1) }
+        val targetMonthName = SimpleDateFormat("MMMM", Locale.getDefault()).format(targetCal.time)
 
         val monthHolidays = getAllHolidays().filter { it.month == month }
         val remainingHolidays = if (month == currentMonth) {
@@ -506,17 +507,46 @@ object CorporateCalendarEngine {
         }
 
         if (items.isEmpty()) {
-            val allHolidays = getAllHolidays()
-            val next = allHolidays.firstOrNull { it.toCalendar().timeInMillis > cal.timeInMillis }
-            val nextInfo = if (next != null) " The next upcoming holiday is ${next.name} on ${next.shortDate()}." else ""
-            return "There are no more holidays remaining in $monthName after today, Boss.$nextInfo"
+            if (month == currentMonth) {
+                val allHolidays = getAllHolidays()
+                val next = allHolidays.firstOrNull { it.toCalendar().timeInMillis > cal.timeInMillis }
+                val nextInfo = if (next != null) " The next upcoming holiday is ${next.name} on ${next.shortDate()}." else ""
+                return "There are no more holidays remaining in $targetMonthName after today, Boss.$nextInfo"
+            } else {
+                return "There are no official public or corporate holidays listed for $targetMonthName, Boss. Only regular 2nd and 4th Saturday weekend offs apply."
+            }
         }
 
-        return "For the rest of $monthName, we have: ${items.joinToString("; ")}."
+        val prefix = if (month == currentMonth) "For the rest of $targetMonthName, we have:" else "For $targetMonthName, we have:"
+        return "$prefix ${items.joinToString("; ")}."
+    }
+
+    /**
+     * Extracts target month (1..12) from natural spoken query.
+     * Supports both full names ("october", "november") and 3-4 letter abbreviations ("oct", "nov").
+     * Defaults to current month if not specified.
+     */
+    fun extractMonthFromQuery(query: String): Int {
+        val lower = query.lowercase().trim()
+        val monthNames = listOf(
+            "january" to 1, "february" to 2, "march" to 3, "april" to 4,
+            "may" to 5, "june" to 6, "july" to 7, "august" to 8,
+            "september" to 9, "october" to 10, "november" to 11, "december" to 12,
+            "jan" to 1, "feb" to 2, "mar" to 3, "apr" to 4,
+            "jun" to 6, "jul" to 7, "aug" to 8, "sep" to 9, "sept" to 9,
+            "oct" to 10, "nov" to 11, "dec" to 12
+        )
+        for ((name, m) in monthNames) {
+            if (lower.contains(Regex("(?i)\\b$name\\b"))) {
+                return m
+            }
+        }
+        return Calendar.getInstance().get(Calendar.MONTH) + 1
     }
 
     /**
      * Answers: "What holidays do we have this month?" / "List holidays in October/November".
+     * Groups identical holiday names into a single clean statement to avoid repetitive speech.
      */
     fun getHolidaysForMonth(month: Int = Calendar.getInstance().get(Calendar.MONTH) + 1): String {
         val now = Calendar.getInstance()
@@ -531,16 +561,35 @@ object CorporateCalendarEngine {
             return "There are no official public or corporate holidays listed for $monthName, Boss. Only regular 2nd and 4th Saturday weekend offs apply."
         }
 
-        val listStr = monthHolidays.joinToString("; ") { h ->
-            val statusTag = if (month == currentMonth) {
-                when {
-                    h.day < currentDay -> " (Completed)"
-                    h.day == currentDay -> " (Today)"
-                    else -> " (Upcoming)"
+        val groupedHolidays = monthHolidays.groupBy { it.name }
+        val items = mutableListOf<String>()
+
+        for ((name, holidays) in groupedHolidays) {
+            if (holidays.size > 1) {
+                val dateList = holidays.joinToString(", ") { h ->
+                    val statusTag = if (month == currentMonth) {
+                        when {
+                            h.day < currentDay -> " (Completed)"
+                            h.day == currentDay -> " (Today)"
+                            else -> " (Upcoming)"
+                        }
+                    } else ""
+                    "${h.shortDate()}$statusTag"
                 }
-            } else ""
-            "${h.name} on ${h.shortDate()}$statusTag"
+                items.add("$name on $dateList")
+            } else {
+                val h = holidays.first()
+                val statusTag = if (month == currentMonth) {
+                    when {
+                        h.day < currentDay -> " (Completed)"
+                        h.day == currentDay -> " (Today)"
+                        else -> " (Upcoming)"
+                    }
+                } else ""
+                items.add("${h.name} on ${h.shortDate()}$statusTag")
+            }
         }
+        val listStr = items.joinToString("; ")
         return "Here is the full holiday schedule for $monthName, Boss: $listStr."
     }
 
@@ -568,8 +617,14 @@ object CorporateCalendarEngine {
         }
 
         val testCal = Calendar.getInstance()
-        while (testCal.get(Calendar.DAY_OF_WEEK) != targetDayOfWeek) {
-            testCal.add(Calendar.DAY_OF_YEAR, 1)
+        if (testCal.get(Calendar.DAY_OF_WEEK) == targetDayOfWeek) {
+            if (lower.contains("coming") || lower.contains("next")) {
+                testCal.add(Calendar.DAY_OF_YEAR, 7)
+            }
+        } else {
+            while (testCal.get(Calendar.DAY_OF_WEEK) != targetDayOfWeek) {
+                testCal.add(Calendar.DAY_OF_YEAR, 1)
+            }
         }
 
         val testMonth = testCal.get(Calendar.MONTH) + 1
@@ -586,7 +641,7 @@ object CorporateCalendarEngine {
             val monthSats = getSaturdaysForMonth(testCal)
             val thisSat = monthSats.find { it.dayOfMonth == testDay }
             if (thisSat != null && thisSat.isOffDay) {
-                return "Yes Boss! $formattedDate is the ${thisSat.rankStr} Saturday of the month, so it is a holiday / weekend off."
+                return "Yes Boss! $formattedDate is the ${thisSat.rankStr} Saturday of the month, which is a regular weekend off."
             }
         }
 
@@ -603,22 +658,8 @@ object CorporateCalendarEngine {
      * Answers: "Is 21st a holiday?" / "Is 26 a holiday?" / "Is October 21 a holiday?".
      */
     fun checkSpecificDateSpoken(query: String): String {
-        val now = Calendar.getInstance()
-        var targetMonth = now.get(Calendar.MONTH) + 1
+        val targetMonth = extractMonthFromQuery(query)
         var targetDay: Int? = null
-
-        val lower = query.lowercase()
-        val monthNames = listOf(
-            "january" to 1, "february" to 2, "march" to 3, "april" to 4,
-            "may" to 5, "june" to 6, "july" to 7, "august" to 8,
-            "september" to 9, "october" to 10, "november" to 11, "december" to 12
-        )
-        for ((name, m) in monthNames) {
-            if (lower.contains(name)) {
-                targetMonth = m
-                break
-            }
-        }
 
         val dayMatch = Regex("\\b(\\d{1,2})(st|nd|rd|th)?\\b").find(query)
         if (dayMatch != null) {
@@ -644,7 +685,7 @@ object CorporateCalendarEngine {
             val monthSats = getSaturdaysForMonth(testCal)
             val thisSat = monthSats.find { it.dayOfMonth == targetDay }
             if (thisSat != null && thisSat.isOffDay) {
-                return "Yes Boss! $formattedDate is the ${thisSat.rankStr} Saturday of the month, so it is an official corporate holiday."
+                return "Yes Boss! $formattedDate is the ${thisSat.rankStr} Saturday of the month, which is a regular weekend off."
             }
         }
 
