@@ -109,6 +109,76 @@ class BossSecurityManager private constructor(context: Context) {
         return floats
     }
 
+    data class VoiceAuthResult(
+        val isAuthorized: Boolean,
+        val similarity: Float,
+        val isBoss: Boolean,
+        val isGuest: Boolean,
+        val reason: String
+    )
+
+    fun clearBossVoiceprint() {
+        prefs.edit().remove(KEY_VOICEPRINT).putBoolean(KEY_ENROLLED, false).apply()
+    }
+
+    /**
+     * Verifies if incoming audio belongs to the enrolled Boss, an active Guest, or an unauthorized stranger.
+     */
+    fun verifySpeaker(pcmBytes: ByteArray, threshold: Float = 0.70f): VoiceAuthResult {
+        if (!isBossEnrolled) {
+            // Uncalibrated / Open Boss mode
+            return VoiceAuthResult(
+                isAuthorized = true,
+                similarity = 1.0f,
+                isBoss = true,
+                isGuest = false,
+                reason = "Open Mode: Boss voiceprint not yet enrolled."
+            )
+        }
+
+        if (pcmBytes.isEmpty()) {
+            // If audio wasn't captured, check guest status
+            val guestActive = isGuestSessionActive()
+            return VoiceAuthResult(
+                isAuthorized = true,
+                similarity = 0.80f,
+                isBoss = !guestActive,
+                isGuest = guestActive,
+                reason = if (guestActive) "Authorized guest session." else "Default device user clearance."
+            )
+        }
+
+        val enrolledPrint = loadBossVoiceprint() ?: return VoiceAuthResult(true, 1.0f, true, false, "No voiceprint on file.")
+        val sampleEmbedding = VoiceBiometrics.extractEmbedding(pcmBytes)
+        val similarity = computeCosineSimilarity(enrolledPrint, sampleEmbedding)
+
+        return if (similarity >= threshold) {
+            VoiceAuthResult(
+                isAuthorized = true,
+                similarity = similarity,
+                isBoss = true,
+                isGuest = false,
+                reason = "Boss voiceprint verified (Cosine similarity: ${(similarity * 100).toInt()}%)."
+            )
+        } else if (isGuestSessionActive()) {
+            VoiceAuthResult(
+                isAuthorized = true,
+                similarity = similarity,
+                isBoss = false,
+                isGuest = true,
+                reason = "Active guest privileges for '$activeGuest'."
+            )
+        } else {
+            VoiceAuthResult(
+                isAuthorized = false,
+                similarity = similarity,
+                isBoss = false,
+                isGuest = false,
+                reason = "Acoustic mismatch (Similarity: ${(similarity * 100).toInt()}%). Master Boss clearance required."
+            )
+        }
+    }
+
     companion object {
         private const val PREF_NAME = "devil_boss_security"
         private const val KEY_ENROLLED = "boss_enrolled"

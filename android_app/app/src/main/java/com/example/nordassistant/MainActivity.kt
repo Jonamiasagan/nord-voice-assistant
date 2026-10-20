@@ -3,10 +3,14 @@ package com.example.nordassistant
 import android.Manifest
 import android.app.SearchManager
 import android.content.ContentUris
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.provider.MediaStore
@@ -18,6 +22,9 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
 import android.util.Log
+import android.view.KeyEvent
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,8 +33,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import android.app.NotificationManager
+import com.example.nordassistant.data.BossMemoryVault
+import com.example.nordassistant.data.DarwinboxShiftTracker
+import com.example.nordassistant.data.DarwinboxAlarmReceiver
+import com.example.nordassistant.protocol.DevilProtocol
+import com.example.nordassistant.protocol.DevilProtocolManager
 import com.example.nordassistant.security.BossSecurityManager
+import com.example.nordassistant.security.BossVoiceRecorder
+import com.example.nordassistant.security.VoiceBiometrics
 import com.example.nordassistant.theme.NordAssistantTheme
 import com.example.nordassistant.ui.AssistantState
 import com.example.nordassistant.ui.GideonFaceView
@@ -40,6 +54,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private lateinit var audioManager: AudioManager
     private lateinit var bossSecurity: BossSecurityManager
+    private lateinit var memoryVault: BossMemoryVault
+    private val voiceRecorder = BossVoiceRecorder()
     
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     
@@ -47,6 +63,73 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var assistantState by mutableStateOf(AssistantState.IDLE)
     private var transcript by mutableStateOf("Ready for voice command...")
     private var securityStatus by mutableStateOf("DEVIL // BOSS SECURED")
+    private var autoListenAfterSpeech = false
+    private var inConversationSession = false
+    private var conversationSessionEndTime = 0L
+    private val conversationSessionDurationMs = 40_000L // 40-second continuous conversation window
+    private var conversationWatchdogJob: Job? = null
+
+    private fun refreshConversationSession() {
+        inConversationSession = true
+        autoListenAfterSpeech = true
+        conversationSessionEndTime = System.currentTimeMillis() + conversationSessionDurationMs
+        conversationWatchdogJob?.cancel()
+        conversationWatchdogJob = scope.launch {
+            while (System.currentTimeMillis() < conversationSessionEndTime) {
+                val remaining = conversationSessionEndTime - System.currentTimeMillis()
+                delay(minOf(remaining, 1000L))
+            }
+            withContext(Dispatchers.Main) {
+                if (assistantState != AssistantState.SPEAKING && assistantState != AssistantState.THINKING) {
+                    inConversationSession = false
+                    autoListenAfterSpeech = false
+                    if (isListening) {
+                        try { speechRecognizer.stopListening() } catch (_: Exception) {}
+                        isListening = false
+                    }
+                    assistantState = AssistantState.IDLE
+                    transcript = "Standing by, Boss."
+                    stopSco()
+                    Log.i("MainActivity", "40-second conversation session ended naturally. Resting to IDLE.")
+                }
+            }
+        }
+    }
+
+    private fun endConversationSession(goodbyeMessage: String? = null) {
+        inConversationSession = false
+        autoListenAfterSpeech = false
+        conversationSessionEndTime = 0L
+        conversationWatchdogJob?.cancel()
+        conversationWatchdogJob = null
+        if (goodbyeMessage != null) {
+            speakResponse(goodbyeMessage, continueConversation = false)
+        } else {
+            assistantState = AssistantState.IDLE
+            transcript = "Standing by, Boss."
+            stopSco()
+        }
+    }
+
+    private val jokes = listOf(
+        "Why do programmers prefer dark mode, Boss? Because light attracts bugs!",
+        "Why did the smartphone go to therapy, Boss? Because it lost its connection and had too many tabs open in its head.",
+        "There are only 10 types of people in the world, Boss: those who understand binary, and those who don't.",
+        "Why was the cell phone wearing glasses, Boss? Because it lost all its contacts!",
+        "I asked my phone why it was being slow. It told me it was just taking a byte to think.",
+        "Why did the computer catch a cold, Boss? Because it left its Windows open!"
+    )
+    private var jokeIndex = 0
+
+    private fun getNextJoke(): String {
+        val joke = jokes[jokeIndex % jokes.size]
+        jokeIndex++
+        return joke
+    }
+
+    data class ContactInfo(val displayName: String, val number: String)
+
+    private var voiceNoteSynthesisCallback: (() -> Unit)? = null
     
     private val requiredPermissions = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
         arrayOf(
@@ -54,7 +137,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             Manifest.permission.CALL_PHONE,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.READ_SMS,
-            Manifest.permission.READ_MEDIA_AUDIO
+            Manifest.permission.READ_MEDIA_AUDIO,
+            Manifest.permission.POST_NOTIFICATIONS
         )
     } else {
         arrayOf(
@@ -79,11 +163,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        clearAppCache()
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         tts = TextToSpeech(this, this)
         bossSecurity = BossSecurityManager.getInstance(this)
-        securityStatus = bossSecurity.getSecurityStatus()
-
+        memoryVault = BossMemoryVault.getInstance(this)
+        DevilProtocolManager.init(this)
+        securityStatus = if (DevilProtocolManager.currentProtocol != DevilProtocol.BOSS_MODE) {
+            DevilProtocolManager.currentProtocol.title
+        } else {
+            bossSecurity.getSecurityStatus()
+        }
         // Initialize on-device LLM helper (copies model + loads it in background)
         scope.launch(Dispatchers.IO) {
             LlamaHelper.init(this@MainActivity)
@@ -97,7 +187,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     securityStatus = securityStatus,
                     onAvatarClick = {
                         if (assistantState == AssistantState.IDLE) {
+                            refreshConversationSession()
                             startListening()
+                        } else if (assistantState == AssistantState.SPEAKING) {
+                            autoListenAfterSpeech = false
+                            tts.stop()
+                            assistantState = AssistantState.IDLE
+                            if (System.currentTimeMillis() < conversationSessionEndTime) {
+                                scope.launch(Dispatchers.Main) {
+                                    delay(200)
+                                    startListening()
+                                }
+                            } else {
+                                endConversationSession()
+                            }
                         }
                     }
                 )
@@ -105,6 +208,35 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         
         permissionLauncher.launch(requiredPermissions)
+        handleIncomingIntent(intent)
+        DarwinboxShiftTracker.scheduleDaily1030AmCheck(this)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        val isWake = intent?.getBooleanExtra("EXTRA_WAKE_DEVIL", false) ?: false
+        val cmd = intent?.getStringExtra("query") ?: intent?.getStringExtra("command")
+        val action = intent?.getStringExtra("EXTRA_ACTION")
+
+        scope.launch(Dispatchers.Main) {
+            if (!::tts.isInitialized) {
+                delay(300)
+            }
+            if (action == "DARWINBOX_CHECK_OUT") {
+                handleDarwinboxAttendance(DevilAccessibilityService.DarwinboxAction.CHECK_OUT)
+            } else if (!cmd.isNullOrBlank()) {
+                refreshConversationSession()
+                processCommand(cmd)
+            } else if (isWake) {
+                refreshConversationSession()
+                speakResponse("Yes Boss?", continueConversation = true)
+            }
+        }
     }
 
     override fun onInit(status: Int) {
@@ -145,11 +277,19 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 Log.e("MainActivity", "Error selecting TTS voice", e)
             }
 
-            // Lively, energetic, brisk speaking rate (1.12f sounds confident, upbeat and alert)
-            tts.setSpeechRate(1.12f)
+            // Lively, energetic, brisk speaking rate (1.18f sounds confident, snappy and responsive)
+            tts.setSpeechRate(1.18f)
 
             // Bright, cheerful, energetic feminine pitch (1.22f gives dynamic enthusiasm)
             tts.setPitch(1.22f)
+
+            try {
+                val audioAttributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+                tts.setAudioAttributes(audioAttributes)
+            } catch (_: Exception) {}
 
             // Track speaking progress to animate Gideon hologram
             tts.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
@@ -161,21 +301,155 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 override fun onDone(utteranceId: String?) {
                     scope.launch(Dispatchers.Main) {
                         assistantState = AssistantState.IDLE
+                        if (utteranceId?.startsWith("VOICE_NOTE_") == true) {
+                            val cb = voiceNoteSynthesisCallback
+                            voiceNoteSynthesisCallback = null
+                            cb?.invoke()
+                        } else if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime) {
+                            delay(350)
+                            if (!isListening && assistantState == AssistantState.IDLE) {
+                                startListening()
+                            }
+                        } else if (autoListenAfterSpeech) {
+                            autoListenAfterSpeech = false
+                            delay(350)
+                            if (!isListening && assistantState == AssistantState.IDLE) {
+                                startListening()
+                            }
+                        }
                     }
                 }
                 override fun onError(utteranceId: String?) {
                     scope.launch(Dispatchers.Main) {
                         assistantState = AssistantState.IDLE
+                        autoListenAfterSpeech = false
+                        if (utteranceId?.startsWith("VOICE_NOTE_") == true) {
+                            voiceNoteSynthesisCallback = null
+                            speakResponse("Sorry Boss, I encountered an issue preparing the audio note.")
+                        }
                     }
                 }
             })
+            // Apply active protocol voice profile
+            applyProtocolVoiceProfile(DevilProtocolManager.currentProtocol)
         }
     }
 
-    private fun speakResponse(text: String) {
+    private fun applyProtocolVoiceProfile(protocol: DevilProtocol) {
+        if (!::tts.isInitialized) return
+        try {
+            val availableVoices = tts.voices
+            when (protocol) {
+                DevilProtocol.BARN_DOOR -> {
+                    // Whispered, brief, formal tone: low quiet pitch and calm rate
+                    tts.setSpeechRate(0.92f)
+                    tts.setPitch(0.85f)
+                    val calmVoice = availableVoices?.find {
+                        it.name.contains("sfg", ignoreCase = true) || it.name.contains("gbc", ignoreCase = true)
+                    }
+                    if (calmVoice != null) tts.voice = calmVoice
+                }
+                DevilProtocol.HOUSE_PARTY -> {
+                    // Direct, purely informational, high-efficiency: fast, crisp
+                    tts.setSpeechRate(1.28f)
+                    tts.setPitch(1.05f)
+                    val devVoice = availableVoices?.find {
+                        it.name.contains("iob", ignoreCase = true) || it.name.contains("tpf", ignoreCase = true)
+                    }
+                    if (devVoice != null) tts.voice = devVoice
+                }
+                DevilProtocol.JARVIS -> {
+                    // Formal, calm, British male accent
+                    tts.setSpeechRate(1.05f)
+                    tts.setPitch(0.95f)
+                    val britishVoice = availableVoices?.find {
+                        it.locale.country.equals("GB", ignoreCase = true) &&
+                        (it.name.contains("rjs", ignoreCase = true) || it.name.contains("gbb", ignoreCase = true) || it.name.contains("male", ignoreCase = true))
+                    } ?: availableVoices?.find { it.locale.country.equals("GB", ignoreCase = true) }
+                    if (britishVoice != null) {
+                        tts.voice = britishVoice
+                        Log.i("MainActivity", "Selected British voice for J.A.R.V.I.S.: ${britishVoice.name}")
+                    }
+                }
+                DevilProtocol.FRIDAY -> {
+                    // Warm, witty Irish / warm female companion accent
+                    tts.setSpeechRate(1.10f)
+                    tts.setPitch(1.24f)
+                    val fridayVoice = availableVoices?.find {
+                        it.locale.country.equals("IE", ignoreCase = true) ||
+                        it.name.contains("dfz", ignoreCase = true) ||
+                        it.name.contains("gbd", ignoreCase = true) ||
+                        (it.name.contains("female", ignoreCase = true) && !it.name.contains("male", ignoreCase = true))
+                    }
+                    if (fridayVoice != null) tts.voice = fridayVoice
+                }
+                DevilProtocol.EDITH -> {
+                    // Crisp, analytical, tactical US female synth voice
+                    tts.setSpeechRate(1.20f)
+                    tts.setPitch(1.05f)
+                    val edithVoice = availableVoices?.find {
+                        it.name.contains("sfg", ignoreCase = true) ||
+                        it.name.contains("tpf", ignoreCase = true) ||
+                        (it.locale.country.equals("US", ignoreCase = true) && it.name.contains("female", ignoreCase = true))
+                    }
+                    if (edithVoice != null) tts.voice = edithVoice
+                }
+                DevilProtocol.BABY_MONITOR -> {
+                    // Warm, informal female accent (F.R.I.D.A.Y. / KAREN)
+                    tts.setSpeechRate(1.08f)
+                    tts.setPitch(1.26f)
+                    val warmFemale = availableVoices?.find {
+                        it.name.contains("iob", ignoreCase = true) || it.name.contains("gbd", ignoreCase = true) || it.name.contains("female", ignoreCase = true)
+                    }
+                    if (warmFemale != null) tts.voice = warmFemale
+                }
+                DevilProtocol.BOSS_MODE -> {
+                    // Standard lively, energetic, confident master voice
+                    tts.setSpeechRate(1.18f)
+                    tts.setPitch(1.22f)
+                    val masterVoice = availableVoices?.find {
+                        it.name.contains("iob", ignoreCase = true) || it.name.contains("tpd", ignoreCase = true)
+                    }
+                    if (masterVoice != null) tts.voice = masterVoice
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error applying protocol voice profile", e)
+        }
+    }
+
+    private fun handleProtocolSwitch(protocol: DevilProtocol) {
+        DevilProtocolManager.setProtocol(protocol, this)
+        securityStatus = protocol.title
+        applyProtocolVoiceProfile(protocol)
+
+        val announcement = when (protocol) {
+            DevilProtocol.BARN_DOOR ->
+                "Barn Door Protocol engaged. Media, notifications, and standard ringtones silenced. Standing by in whispered mode, Boss."
+            DevilProtocol.HOUSE_PARTY ->
+                "House Party Protocol engaged. Strict technical notification filters active. High-efficiency focus mode initiated, Boss."
+            DevilProtocol.JARVIS ->
+                "J.A.R.V.I.S. Protocol online. At your service, Boss. Business communications prioritized, distraction applications shielded."
+            DevilProtocol.FRIDAY ->
+                "F.R.I.D.A.Y. Protocol engaged! Systems synchronized, Boss. How can I help you today?"
+            DevilProtocol.EDITH ->
+                "E.D.I.T.H. Protocol online. Tactical defense systems armed. Standing by, Boss."
+            DevilProtocol.BABY_MONITOR ->
+                "Baby Monitor Protocol activated, Boss. Work communication blocked, relaxation and entertainment unlocked. Have a wonderful evening."
+            DevilProtocol.BOSS_MODE ->
+                "All protocols revoked. Master Boss Mode restored. DEVIL is fully at your command."
+        }
+        speakResponse(announcement)
+    }
+
+    private fun speakResponse(text: String, continueConversation: Boolean = false) {
+        Log.i("MainActivity", "DEVIL SPEAK: $text (continueConversation=$continueConversation, inSession=$inConversationSession)")
         transcript = text
         assistantState = AssistantState.SPEAKING
-        val utteranceId = "Gideon_${System.currentTimeMillis()}"
+        if (continueConversation) {
+            refreshConversationSession()
+        }
+        val utteranceId = "DEVIL_${System.currentTimeMillis()}"
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
     }
 
@@ -196,9 +470,35 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             override fun onError(error: Int) {
                 isListening = false
-                assistantState = AssistantState.IDLE
-                transcript = "Error: $error"
-                stopSco()
+                val now = System.currentTimeMillis()
+                val sessionActive = inConversationSession && (now < conversationSessionEndTime)
+
+                if (sessionActive && assistantState != AssistantState.SPEAKING && assistantState != AssistantState.THINKING) {
+                    // Conversation session is active within the 40-second window!
+                    // Do NOT exit or force the user to tap again.
+                    assistantState = AssistantState.IDLE
+                    val secondsLeft = ((conversationSessionEndTime - now) / 1000L).coerceAtLeast(0)
+                    transcript = "Listening... (${secondsLeft}s)"
+                    Log.i("MainActivity", "Recognizer error $error in active 40s session. Auto-re-listening (${secondsLeft}s remaining)...")
+                    scope.launch(Dispatchers.Main) {
+                        delay(250)
+                        if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime && assistantState == AssistantState.IDLE && !isListening) {
+                            startListening()
+                        }
+                    }
+                } else {
+                    assistantState = AssistantState.IDLE
+                    inConversationSession = false
+                    autoListenAfterSpeech = false
+                    transcript = when (error) {
+                        SpeechRecognizer.ERROR_NO_MATCH -> "Standing by, Boss."
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Standing by, Boss."
+                        SpeechRecognizer.ERROR_AUDIO -> "Audio recording issue"
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognizer busy, tap to retry"
+                        else -> "Error: $error"
+                    }
+                    stopSco()
+                }
             }
             override fun onResults(results: Bundle?) {
                 isListening = false
@@ -207,9 +507,19 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     val text = matches[0]
                     transcript = text
                     assistantState = AssistantState.THINKING
+                    refreshConversationSession() // Reset 40-second timer on user speech!
                     processCommand(text)
                 } else {
-                    assistantState = AssistantState.IDLE
+                    if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime) {
+                        scope.launch(Dispatchers.Main) {
+                            delay(200)
+                            if (!isListening && assistantState == AssistantState.IDLE) {
+                                startListening()
+                            }
+                        }
+                    } else {
+                        assistantState = AssistantState.IDLE
+                    }
                 }
                 stopSco()
             }
@@ -219,6 +529,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun startListening() {
+        if (isListening || assistantState == AssistantState.SPEAKING) return
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
         
         try {
@@ -229,14 +540,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         } catch (e: Exception) {
             Log.w("MainActivity", "Bluetooth SCO setup", e)
         }
-        
+
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            // Fast endpointing: detect end of command quickly (700ms silence vs default 2000ms)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 700L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 700L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1000L)
+            // Natural speech endpointing: allow comfortable breathing pause without premature cutoff
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 400L)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
         }
         speechRecognizer.startListening(intent)
     }
@@ -263,6 +575,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             "barath" -> "baddu"
             "bharath" -> "bethol"
             "mom", "mother" -> "amma"
+            "syam", "syaam", "shyam", "shyaam", "sham", "syam fincare", "shyam fincare" -> "Syam"
             else -> spoken
         }
     }
@@ -270,8 +583,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun handlePersonIntroduction(input: String): Boolean {
         val lower = input.lowercase(Locale.getDefault()).trim()
 
-        // Filter out non-introduction queries (calls, music, navigation, etc.)
-        if (lower.startsWith("call ") || lower.startsWith("play ") || lower.startsWith("open ") || lower.startsWith("directions to")) {
+        // Filter out non-introduction queries (calls, music, navigation, queries, negative statements, etc.)
+        val nonPersonKeywords = listOf(
+            "playlist", "song", "music", "audio", "track", "album", "video", "movie", "vlc",
+            "not ", "isn't", "aren't", "wasn't", "phone", "app", "what", "why", "how", "when",
+            "weather", "where", "temp", "call ", "play ", "open ", "directions"
+        )
+        if (nonPersonKeywords.any { lower.contains(it) }) {
             return false
         }
 
@@ -329,7 +647,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         // 2. Generic Name Extraction for any person introduction
-        // Handles: "this is rahul", "meet my friend anand", "say hi to priya", "his name is karthik", "greet dr smith"
         val regexes = listOf(
             Regex("(?i).*(?:his|her)\\s+name\\s+is\\s+([a-zA-Z]+(?:\\s+[a-zA-Z]+)?)"),
             Regex("(?i).*(?:say\\s+(?:hi|hello|hey)\\s+to|greet|welcome)\\s+(?:my\\s+\\w+\\s+|our\\s+\\w+\\s+)?([a-zA-Z]+(?:\\s+[a-zA-Z]+)?)"),
@@ -337,7 +654,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             Regex("(?i).*introduce\\s+(?:yourself\\s+to\\s+)?(?:my\\s+\\w+\\s+|our\\s+\\w+\\s+)?([a-zA-Z]+(?:\\s+[a-zA-Z]+)?)")
         )
 
-        val fillerWords = setOf("a", "an", "the", "my", "our", "him", "her", "them", "someone", "everyone", "devil", "assistant")
+        val fillerWords = setOf(
+            "a", "an", "the", "my", "our", "him", "her", "them", "someone", "everyone", "devil", "assistant",
+            "not", "no", "never", "good", "bad", "cool", "okay", "great", "fine", "boring", "awesome",
+            "right", "wrong", "here", "there", "test", "real", "working", "done"
+        )
 
         for (regex in regexes) {
             val match = regex.find(input)
@@ -438,16 +759,205 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         return false
     }
 
+    private fun handleWeatherCommand(input: String): Boolean {
+        val lower = input.lowercase(Locale.getDefault())
+        val isWeather = lower.contains("weather") || lower.contains("temperature") || lower.contains("climate")
+        if (!isWeather) return false
+
+        // Extract city if present
+        var city = "Bengaluru"
+        val cityMatch = Regex("(?i)\\b(?:in|at|for|of)\\s+([a-zA-Z\\s]+)").find(input)
+        if (cityMatch != null) {
+            val candidate = cityMatch.groupValues[1].trim()
+                .replace(Regex("(?i)\\b(?:today|tomorrow|now|right\\s+now|please)\\b"), "")
+                .trim()
+            if (candidate.isNotEmpty()) {
+                city = candidate
+            }
+        }
+
+        scope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) {
+                assistantState = AssistantState.THINKING
+                transcript = "Checking weather for $city..."
+            }
+            try {
+                val cleanKey = city.lowercase(Locale.getDefault())
+                val knownCoords = mapOf(
+                    "bangalore" to Pair(12.9716, 77.5946),
+                    "bengaluru" to Pair(12.9716, 77.5946),
+                    "mumbai" to Pair(19.0760, 72.8777),
+                    "bombay" to Pair(19.0760, 72.8777),
+                    "delhi" to Pair(28.6139, 77.2090),
+                    "new delhi" to Pair(28.6139, 77.2090),
+                    "hyderabad" to Pair(17.3850, 78.4867),
+                    "chennai" to Pair(13.0827, 80.2707),
+                    "madras" to Pair(13.0827, 80.2707),
+                    "kolkata" to Pair(22.5726, 88.3639),
+                    "pune" to Pair(18.5204, 73.8567)
+                )
+
+                val coords = knownCoords[cleanKey] ?: run {
+                    val geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=${Uri.encode(city)}&count=5"
+                    val geoConn = java.net.URL(geoUrl).openConnection() as java.net.HttpURLConnection
+                    geoConn.connectTimeout = 3000
+                    geoConn.readTimeout = 3000
+                    val jsonStr = geoConn.inputStream.bufferedReader().readText()
+                    val latMatch = Regex("\"latitude\":([0-9.]+)").find(jsonStr)
+                    val lonMatch = Regex("\"longitude\":([0-9.]+)").find(jsonStr)
+                    if (latMatch != null && lonMatch != null) {
+                        Pair(latMatch.groupValues[1].toDouble(), lonMatch.groupValues[1].toDouble())
+                    } else {
+                        Pair(12.9716, 77.5946)
+                    }
+                }
+
+                val weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=${coords.first}&longitude=${coords.second}&current=temperature_2m,relative_humidity_2m,weather_code"
+                val conn = java.net.URL(weatherUrl).openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 3000
+                conn.readTimeout = 3000
+                val weatherJson = conn.inputStream.bufferedReader().readText()
+
+                val tempMatch = Regex("\"temperature_2m\":([0-9.-]+)").find(weatherJson)
+                val humMatch = Regex("\"relative_humidity_2m\":([0-9]+)").find(weatherJson)
+                val codeMatch = Regex("\"weather_code\":([0-9]+)").find(weatherJson)
+
+                val temp = tempMatch?.groupValues?.get(1)?.toDoubleOrNull()?.let { "%.1f".format(it) } ?: "23"
+                val hum = humMatch?.groupValues?.get(1) ?: "75"
+                val code = codeMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
+                val condition = when (code) {
+                    0 -> "clear skies"
+                    1, 2 -> "partly cloudy"
+                    3 -> "overcast and cloudy"
+                    45, 48 -> "foggy"
+                    51, 53, 55 -> "light drizzle"
+                    61, 63, 65 -> "rainy"
+                    80, 81, 82 -> "rain showers"
+                    95, 96, 99 -> "thunderstorms"
+                    else -> "fair"
+                }
+
+                val displayCity = city.replaceFirstChar { it.uppercase() }
+                val weatherResponse = "Currently in $displayCity, it is $temp degrees Celsius with $condition and $hum percent humidity."
+                withContext(Dispatchers.Main) {
+                    speakResponse(weatherResponse)
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Weather fetch error", e)
+                withContext(Dispatchers.Main) {
+                    speakResponse("I couldn't fetch the current weather. Please check your internet connection.")
+                }
+            }
+        }
+        return true
+    }
+
+    private val vlcPlaylists = mapOf(
+        "mood" to 66,
+        "mass" to 158,
+        "slow" to 49,
+        "test" to 27,
+        "m" to 330,
+        "s" to 64,
+        "o" to 97,
+        "h" to 1
+    )
+
+    private fun normalizeSpokenCommand(command: String): String {
+        var norm = command.trim()
+        // Fix VLC phonetic misrecognitions: "vluc", "v l c", "v.l.c.", "velc", "vl c"
+        norm = norm.replace(Regex("(?i)\\b(?:vluc|v\\.?\\s*l\\.?\\s*c\\.?|velc|vl\\s+c)\\b"), "vlc")
+        // Fix "play list" / "play lists" / "play-list" -> "playlist" / "playlists"
+        norm = norm.replace(Regex("(?i)\\bplay\\s+lists\\b"), "playlists")
+        norm = norm.replace(Regex("(?i)\\bplay\\s+list\\b"), "playlist")
+        norm = norm.replace(Regex("(?i)\\bplay-lists?\\b"), "playlist")
+        // Fix WhatsApp misrecognitions
+        norm = norm.replace(Regex("(?i)\\bwhat\\s*'?s?\\s*app\\b"), "whatsapp")
+        // Fix phonetic / typo variations for "ask": "aks"
+        norm = norm.replace(Regex("(?i)\\baks\\b"), "ask")
+        // Fix phonetic misrecognition of "test player" / "test playlist" as "latest player", "latest ladies", etc.
+        norm = norm.replace(Regex("(?i)\\b(?:latest|taste|tasted)\\s+(?:player|playlist|play\\s*list|music\\s*player|play\\s*store\\s*music\\s*player|play\\s*store)\\b"), "test playlist")
+        norm = norm.replace(Regex("(?i)\\blatest\\s+ladies\\b"), "test playlist")
+        return norm
+    }
+
     private fun handleMediaAndVlcCommand(input: String): Boolean {
-        val trimmed = input.trim()
+        val trimmed = normalizeSpokenCommand(input)
         val lower = trimmed.lowercase(Locale.getDefault())
 
+        // 1. Direct App Launch for VLC
+        if (lower in listOf("vlc", "vlc player", "open vlc", "open vlc player", "launch vlc", "start vlc", "start vlc player")) {
+            openApp("vlc")
+            speakResponse("Opening VLC player.")
+            return true
+        }
+
+        // 2. Specific playlist track count inquiry (e.g., "how many songs in mood playlist")
+        val specificPlaylistCountRegex = Regex("(?i).*(?:how\\s+many|count|number\\s+of)\\s+(?:songs?|tracks?)\\s+(?:are\\s+there\\s+)?(?:in|on|for)\\s+(?:the\\s+|my\\s+)?([a-zA-Z0-9_-]+)(?:\\s+playlist)?.*")
+        if (specificPlaylistCountRegex.matches(lower)) {
+            val name = specificPlaylistCountRegex.find(lower)?.groupValues?.get(1)?.trim()?.lowercase(Locale.getDefault())
+            if (name != null && vlcPlaylists.containsKey(name)) {
+                val count = vlcPlaylists[name]
+                speakResponse("Playlist $name in VLC player has $count tracks. You can say 'play $name playlist' to listen.")
+                return true
+            }
+        }
+
+        // 3. General VLC playlist inquiry (e.g., "how many playlists are there in my vlc player", "what playlists do I have", "list playlists")
+        val isPlaylistInquiry = (
+            (lower.contains("playlist") || lower.contains("playlists")) && (
+                lower.contains(Regex("\\b(?:what|show|which|tell|how\\s+many|count|number\\s+of|total|check|find|any|list|lists|all)\\b")) ||
+                lower.contains(Regex("\\bhow\\s+much\\b"))
+            )
+        ) || lower in listOf("playlists", "vlc playlists", "my playlists", "playlist list", "all playlists", "playlist count", "vlc playlist count")
+
+        if (isPlaylistInquiry) {
+            val count = vlcPlaylists.size
+            val listStr = vlcPlaylists.entries.joinToString(", ") { "${it.key} (${it.value} tracks)" }
+            speakResponse("In VLC player you have $count playlists: $listStr. You can say 'play mood playlist' or 'play mass playlist' to start listening.")
+            return true
+        }
+
+        // 3.5 Media playback controls (pause, resume, next, previous)
+        val isPause = lower in listOf("pause", "pause music", "pause song", "stop music", "pause the music", "pause the song", "stop playback", "stop playing", "pause playback", "stop the music")
+        val isResume = lower in listOf("resume", "resume music", "resume song", "continue music", "resume the music", "unpause", "resume playback")
+        val isNext = lower in listOf("next song", "next track", "skip", "skip song", "next", "skip track", "play next song", "next song please")
+        val isPrevious = lower in listOf("previous song", "previous track", "previous", "go back song", "last song", "play previous song")
+
+        if (isPause) {
+            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PAUSE))
+            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PAUSE))
+            speakResponse("Music paused, Boss.")
+            return true
+        }
+        if (isResume) {
+            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
+            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
+            speakResponse("Resuming music, Boss.")
+            return true
+        }
+        if (isNext) {
+            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_NEXT))
+            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_NEXT))
+            speakResponse("Skipping to next song, Boss.")
+            return true
+        }
+        if (isPrevious) {
+            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS))
+            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PREVIOUS))
+            speakResponse("Playing previous song, Boss.")
+            return true
+        }
+
+        // 4. Media playback & shuffle
         val isMedia = lower.startsWith("play ") ||
                 lower.startsWith("start playing ") ||
                 lower.startsWith("shuffle ") ||
                 lower.contains("play on shuffle") ||
                 lower.contains("play random") ||
                 lower.contains("play playlist") ||
+                lower.contains("playlist") ||
                 lower.contains("play album") ||
                 lower.contains("play artist") ||
                 lower.contains("play song") ||
@@ -462,18 +972,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 lower == "shuffle music"
 
         if (!isMedia) {
-            if (lower == "vlc" || lower == "vlc player" || lower == "open vlc" || lower == "open vlc player" || lower == "launch vlc") {
-                openApp("vlc")
-                speakResponse("Opening VLC player.")
-                return true
-            }
             return false
         }
 
         val isShuffle = lower.contains("shuffle") || lower.contains("random")
 
         var query = trimmed
-            .replace(Regex("(?i)^(?:can\\s+you\\s+|please\\s+)?(?:play|start\\s+playing|shuffle(?:\\s+play)?|play\\s+on\\s+shuffle|play\\s+random)\\s*"), "")
+            .replace(Regex("(?i)^(?:can\\s+you\\s+(?:please\\s+)?|please\\s+)?(?:play|start\\s+playing|shuffle(?:\\s+play)?|play\\s+on\\s+shuffle|play\\s+random)\\s*"), "")
             .replace(Regex("(?i)\\b(?:in|on|from|using|with)\\s+vlc(?:\\s+player)?\\b"), "")
             .replace(Regex("(?i)\\bvlc(?:\\s+player)?\\b"), "")
             .replace(Regex("(?i)\\bon\\s+shuffle\\b|\\bshuffle\\b|\\brandom\\b"), "")
@@ -483,8 +988,109 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         return true
     }
 
+    private fun handleVoiceCalibration() {
+        speakResponse("Boss voice calibration initiated. After the tone, please speak continuously for three seconds: 'I am the Boss, authorize DEVIL'.")
+        scope.launch(Dispatchers.Main) {
+            delay(4200)
+            assistantState = AssistantState.LISTENING
+            transcript = "Calibrating Boss Voiceprint... Speak now!"
+            val pcmBytes = voiceRecorder.recordCalibration(3500L)
+            assistantState = AssistantState.THINKING
+            if (pcmBytes.size > VoiceBiometrics.FRAME_SIZE * 4) {
+                val embedding = VoiceBiometrics.extractEmbedding(pcmBytes)
+                bossSecurity.saveBossVoiceprint(embedding)
+                securityStatus = "BOSS SECURED (ENROLLED)"
+                speakResponse("Calibration successful! Your master acoustic voiceprint is now locked to DEVIL, Boss.")
+                transcript = "Boss Voiceprint Enrolled Successfully"
+            } else {
+                speakResponse("Could not capture sufficient audio for calibration. Please try again.")
+                transcript = "Calibration failed: insufficient audio"
+            }
+            assistantState = AssistantState.IDLE
+        }
+    }
+
     private fun processCommand(command: String) {
-        val trimmed = command.trim()
+        val trimmed = normalizeSpokenCommand(command)
+        Log.i("MainActivity", "COMMAND RECEIVED: '$command' -> TRIMMED: '$trimmed'")
+
+        // ── Voice Calibration & Voiceprint Management ──
+        if (trimmed.contains(Regex("(?i)\\b(calibrate\\s*(my\\s*)?voice|enroll\\s*(my\\s*)?voice|setup\\s*voiceprint|register\\s*(my\\s*)?voice|record\\s*voiceprint)\\b"))) {
+            handleVoiceCalibration()
+            return
+        }
+        if (trimmed.contains(Regex("(?i)\\b(reset\\s*voiceprint|clear\\s*voiceprint|delete\\s*voiceprint|unregister\\s*voice)\\b"))) {
+            bossSecurity.clearBossVoiceprint()
+            securityStatus = bossSecurity.getSecurityStatus()
+            speakResponse("Boss voiceprint cleared. DEVIL is back in open mode.")
+            return
+        }
+
+        // ── Conversation Memory & Session Control ──
+        if (trimmed.contains(Regex("(?i)\\b(clear\\s*(?:chat|history|conversation|memory)|reset\\s*(?:chat|conversation|memory)|forget\\s*(?:that|everything|previous))\\b"))) {
+            LlamaHelper.clearHistory()
+            inConversationSession = true
+            speakResponse("Conversation memory cleared, Boss. What's on your mind?", continueConversation = true)
+            return
+        }
+        if (trimmed.contains(Regex("(?i)\\b(that's\\s*all|that\\s*is\\s*all|bye|goodbye|see\\s*you|stop\\s*listening|exit\\s*chat|never\\s*mind|nothing\\s*else|go\\s*to\\s*sleep)\\b"))) {
+            endConversationSession("Standing by, Boss.")
+            return
+        }
+
+        // ── Persistent Long-Term Memory (BossMemoryVault) ──
+        // 1. Remember a fact
+        val rememberRegex = Regex("(?i)^(?:devil\\s*,?\\s*)?(?:please\\s+)?(?:remember\\s+(?:that\\s+)?|note\\s+(?:down\\s+)?(?:that\\s+)?|commit\\s+to\\s+memory\\s+(?:that\\s+)?)(.+)")
+        if (rememberRegex.containsMatchIn(trimmed) && !trimmed.contains("do you remember") && !trimmed.contains("what do you remember")) {
+            val match = rememberRegex.find(trimmed)
+            val fullStatement = match?.groupValues?.get(1)?.trim() ?: ""
+            val splitRegex = Regex("(?i)\\s+(?:is|=|are|was)\\s+")
+            val parts = fullStatement.split(splitRegex, limit = 2)
+            val (key, fact) = if (parts.size == 2) {
+                parts[0].replace(Regex("(?i)^(?:my|the|that)\\s+"), "").trim() to parts[1].trim()
+            } else {
+                fullStatement to fullStatement
+            }
+            memoryVault.remember(key, fact)
+            inConversationSession = true
+            speakResponse("Got it, Boss! I've stored in your memory vault that $key is $fact.", continueConversation = true)
+            return
+        }
+
+        // 2. List all memories
+        if (trimmed.contains(Regex("(?i)\\b(what\\s+(?:do\\s+you|did\\s+you)\\s+remember|list\\s+(?:my\\s+)?memories|show\\s+(?:my\\s+)?memories|what's\\s+in\\s+(?:my\\s+)?memory\\s+vault)\\b"))) {
+            inConversationSession = true
+            val summary = memoryVault.listMemoriesSummary()
+            speakResponse(summary, continueConversation = true)
+            return
+        }
+
+        // 3. Forget/Delete memory
+        val forgetMemoryRegex = Regex("(?i)^(?:forget|delete\\s+(?:the\\s+)?memory\\s+(?:about|of)?|remove\\s+(?:the\\s+)?memory\\s+(?:about|of)?)\\s+(?:my\\s+)?(.+)")
+        if (forgetMemoryRegex.matches(trimmed) && !trimmed.contains("chat") && !trimmed.contains("history")) {
+            val target = forgetMemoryRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: ""
+            inConversationSession = true
+            val success = memoryVault.forget(target)
+            if (success) {
+                speakResponse("Memory regarding '$target' has been purged from your vault, Boss.", continueConversation = true)
+            } else {
+                speakResponse("I couldn't find any memory stored for '$target', Boss.", continueConversation = true)
+            }
+            return
+        }
+
+        // 4. Recall a specific fact
+        val recallRegex = Regex("(?i)^(?:what(?:'s|\\s+is|\\s+was)|do\\s+you\\s+(?:know|remember)|recall)\\s+(?:my\\s+|about\\s+my\\s+|about\\s+)?(.+?)(?:\\s*\\?)?$")
+        if (recallRegex.matches(trimmed) && !trimmed.contains("weather") && !trimmed.contains("time") && !trimmed.contains("date") && !trimmed.contains("name")) {
+            val target = recallRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: ""
+            val item = memoryVault.recall(target)
+            if (item != null) {
+                inConversationSession = true
+                speakResponse("According to your memory vault, Boss: ${item.key} is ${item.fact}.", continueConversation = true)
+                return
+            }
+        }
+
         val greetingRegex = Regex("(?i)^(?:hello|hi|hey|good\\s+(?:morning|afternoon|evening)|namaste|hola)\\b.*")
         val identityRegex = Regex("(?i).*(?:who\\s+are\\s+you|what(?:'s|\\s+is)\\s+your\\s+name|what\\s+are\\s+you|introduce\\s+yourself(?!(?:\\s+to|\\s+with))).*")
         val howAreYouRegex = Regex("(?i).*(?:how\\s+are\\s+you|how's\\s+it\\s+going|how\\s+are\\s+things).*")
@@ -496,18 +1102,59 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         // Enhanced SMS detection
         val isSms = trimmed.contains(Regex("(?i)\\b(?:texts?|sms|messages?)\\b")) && !isWhatsApp
 
+        val tryVoiceNoteRegex = Regex("(?i).*(?:try|test)\\s+(?:the\\s+)?(?:whatsapp|voice)\\s+note.*")
+        val voiceNoteRegex = Regex(
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send\\s+)?(?:a\\s+)?(?:whatsapp\\s+)?(?:voice\\s+note|audio\\s+note|voice\\s+message|audio\\s+message|note)\\s+(?:to\\s+)?(.+?)\\s+(?:saying|say|tell|telling|that|message)\\s+(.+)"
+        )
+        val voiceNoteSimpleRegex = Regex(
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send\\s+)?(?:a\\s+)?(?:whatsapp\\s+)?(?:voice\\s+note|audio\\s+note|voice\\s+message|audio\\s+message)\\s+(?:to\\s+)?([a-zA-Z0-9\\s]{1,25}?)\\s*[:,]?\\s+(.+)"
+        )
+        val sendWhatsAppRegex = Regex(
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send\\s+)?(?:a\\s+)?whatsapp(?:\\s+message)?\\s+(?:to\\s+)?(.+?)\\s+(?:saying|say|tell|telling|that)\\s+(.+)"
+        )
+        val tellOnWhatsAppRegex = Regex(
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:tell|message|inform|convey\\s+to)\\s+(.+?)\\s+on\\s+whatsapp\\s+(?:saying|that|to)?\\s*(.+)"
+        )
+        val whatsAppVerbRegex = Regex(
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?whatsapp\\s+(.+?)\\s+(?:saying|say|tell|telling|that)\\s+(.+)"
+        )
+
+        val callAndSayRegex = Regex("(?i)^(?:can\\s+you\\s+|please\\s+)?call\\s+(.+?)\\s+(?:and\\s+|to\\s+)?(?:say(?:\\s+to\\s+(?:him|her|them))?|tell(?:\\s+(?:to\\s+)?(?:him|her|them))?|inform(?:\\s+(?:to\\s+)?(?:him|her|them))?|convey(?:\\s+(?:to\\s+)?(?:him|her|them))?|ask(?:\\s+(?:to\\s+)?(?:him|her|them))?)\\s+(?:that\\s+)?(.+)")
         val callRegex = Regex("(?i)call\\s+(.+)")
         val openAppRegex = Regex("(?i)(?:open|launch|start)\\s+(.+)")
 
         val isLockdown = trimmed.matches(Regex("(?i).*(?:lock\\s*down|cancel\\s+guest|revoke\\s+guest|boss\\s+only).*"))
+        val isBossModeLogic = trimmed.matches(Regex("(?i).*(?:what\\s+is\\s+(?:the\\s+)?(?:logic\\s+of\\s+)?boss\\s+mode|explain\\s+boss\\s+mode|how\\s+does\\s+boss\\s+mode\\s+work).*"))
+        val isBossCheck = trimmed.matches(Regex("(?i).*(?:who\\s+is\\s+(?:your|the)\\s+boss|do\\s+you\\s+have\\s+a\\s+boss|who\\s+is\\s+in\\s+charge|who\\s+runs\\s+(?:you|this)).*"))
+        val isUserIdentityCheck = trimmed.matches(Regex("(?i).*(?:who\\s+am\\s+i|about\\s+me|tell\\s+me\\s+about\\s+me|what\\s+is\\s+my\\s+role|my\\s+identity|do\\s+you\\s+know\\s+who\\s+am\\s+i).*"))
         val isAuthCheck = trimmed.matches(Regex("(?i).*(?:who\\s+is\\s+authorized|authorization\\s+status|who\\s+can\\s+talk|who\\s+has\\s+access).*"))
+        val isProtocolsInquiry = trimmed.contains(Regex("(?i)\\b(protocols?|list\\s+(?:out\\s+)?(?:what\\s+)?protocols?|what\\s+(?:are\\s+the\\s+|kind\\s+of\\s+)?protocols?|which\\s+protocols?|tell\\s+me\\s+about\\s+protocols?)\\b"))
 
         when {
+            // ── 0. Instant Greetings Fast-Path ──
+            trimmed.contains(Regex("(?i)\\b(hi|hello|hey|namaste|hola|good\\s+(?:morning|afternoon|evening))\\b")) && trimmed.length <= 25 -> {
+                inConversationSession = true
+                speakResponse("Hello Boss! DEVIL is online and fully at your service. What's on your mind?", continueConversation = true)
+            }
+
             // ── 0. Boss Security Lockdown & Authorization ──
             isLockdown -> {
                 val msg = bossSecurity.revokeGuest()
                 securityStatus = bossSecurity.getSecurityStatus()
                 speakResponse(msg)
+            }
+            isBossModeLogic -> {
+                speakResponse("Boss Mode designates you as the sole authorized master of DEVIL with full clearance over all phone features. Guests can only interact when introduced by you, and can be revoked at any time with lockdown.")
+            }
+            isBossCheck -> {
+                speakResponse("You are my Boss. You hold master voice clearance over DEVIL and all device subsystems.")
+            }
+            isUserIdentityCheck -> {
+                if (bossSecurity.isGuestSessionActive()) {
+                    speakResponse("You are the Boss with master clearance, currently hosting guest ${bossSecurity.activeGuest}. Your word is the ultimate command.")
+                } else {
+                    speakResponse("You are the Boss. You hold master clearance over DEVIL and this device. Your command is absolute.")
+                }
             }
             isAuthCheck -> {
                 if (bossSecurity.isGuestSessionActive()) {
@@ -515,6 +1162,44 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 } else {
                     speakResponse("Boss-only mode is active. Master voice clearance is required. No outside guests are authorized.")
                 }
+            }
+            isProtocolsInquiry -> {
+                speakResponse("I have several operational protocols, Boss: 1. Boss Mode for master clearance, 2. J.A.R.V.I.S. Protocol for formal British assistance, 3. F.R.I.D.A.Y. Protocol for tactical companion mode, 4. E.D.I.T.H. Protocol for tactical defense, 5. Sentry Mode for hands-free perimeter monitoring, 6. Barn Door Protocol for silent meetings, and 7. House Party Protocol for focused development.")
+            }
+
+            // ── Sentry Mode Activation & Revocation (Hands-Free Wake-Word) ──
+            DevilProtocolManager.isSentryModeTrigger(trimmed) -> {
+                DevilProtocolManager.activateSentryMode(this)
+                securityStatus = "SENTRY MODE // AUDIO ACTIVE"
+                speakResponse("Sentry Mode engaged, Boss. Perimeter audio sensors online. Standing by for 'Hey DEVIL'.")
+            }
+            DevilProtocolManager.isSentryModeRevokeTrigger(trimmed) -> {
+                DevilProtocolManager.revokeSentryMode(this)
+                securityStatus = DevilProtocolManager.currentProtocol.title
+                speakResponse("Sentry Mode revoked, Boss. Audio sensors powered down to battery-saver mode.")
+            }
+
+            // ── 0.1 DEVIL Operational Protocols & Boss Mode Revocation ──
+            DevilProtocolManager.isBossModeRevocation(trimmed) -> {
+                handleProtocolSwitch(DevilProtocol.BOSS_MODE)
+            }
+            DevilProtocolManager.isJarvisTrigger(trimmed) -> {
+                handleProtocolSwitch(DevilProtocol.JARVIS)
+            }
+            DevilProtocolManager.isFridayTrigger(trimmed) -> {
+                handleProtocolSwitch(DevilProtocol.FRIDAY)
+            }
+            DevilProtocolManager.isEdithTrigger(trimmed) -> {
+                handleProtocolSwitch(DevilProtocol.EDITH)
+            }
+            DevilProtocolManager.isBarnDoorTrigger(trimmed) -> {
+                handleProtocolSwitch(DevilProtocol.BARN_DOOR)
+            }
+            DevilProtocolManager.isHousePartyTrigger(trimmed) -> {
+                handleProtocolSwitch(DevilProtocol.HOUSE_PARTY)
+            }
+            DevilProtocolManager.isBabyMonitorTrigger(trimmed) -> {
+                handleProtocolSwitch(DevilProtocol.BABY_MONITOR)
             }
 
             // ── 1. Person Introduction & Greeting Fast-Path ──
@@ -524,25 +1209,72 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             // ── 2. Conversational Fast-Path (0 latency) ──
             identityRegex.matches(trimmed) -> {
-                speakResponse("I'm DEVIL, I'm here to help.")
+                inConversationSession = true
+                speakResponse("I'm DEVIL, your AI companion. I'm here at your service, Boss.", continueConversation = true)
             }
             greetingRegex.matches(trimmed) -> {
-                speakResponse("Hello! I'm DEVIL, I'm here to help.")
+                inConversationSession = true
+                speakResponse("Hello Boss! DEVIL is ready. What can I do for you?", continueConversation = true)
             }
             trimmed.matches(Regex("(?i)^(?:hey\\s+|ok\\s+|hello\\s+)?devil\\b.*")) && trimmed.length <= 15 -> {
-                speakResponse("Yes, I'm DEVIL. How can I help?")
+                inConversationSession = true
+                speakResponse("Yes Boss, I'm listening.", continueConversation = true)
             }
             howAreYouRegex.matches(trimmed) -> {
-                speakResponse("I'm doing well, thank you! I'm DEVIL, how can I help you today?")
+                inConversationSession = true
+                speakResponse("I'm running at peak performance, Boss! How are you doing today?", continueConversation = true)
             }
             thanksRegex.matches(trimmed) -> {
-                speakResponse("You're very welcome! I'm always here to help.")
+                endConversationSession("You're very welcome, Boss! Always at your command.")
             }
             helpRegex.matches(trimmed) -> {
-                speakResponse("I'm DEVIL. You can ask me questions, introduce people, or ask me to play albums and playlists in VLC, check distance and navigate with Maps, call contacts, or summarize your WhatsApp and text messages.")
+                inConversationSession = true
+                speakResponse("You can chat with me naturally, ask any question, or command me to check in on Darwinbox, navigate with Maps, send WhatsApp voice notes, and play music in VLC. What shall we do?", continueConversation = true)
+            }
+            trimmed.contains(Regex("(?i)\\b(bored|bore|getting\\s+bore|feel\\s+bored|boredom)\\b")) -> {
+                inConversationSession = true
+                speakResponse("Boredom detected, Boss! Let me fix that. I can play your music in VLC, or tell you a joke. Here's a good one: " + getNextJoke(), continueConversation = true)
+            }
+            trimmed.contains(Regex("(?i)\\b(jokes?|tell\\s+a\\s+joke|tell\\s+me\\s+a\\s+joke|funny|make\\s+me\\s+laugh|entertain\\s+me)\\b")) -> {
+                inConversationSession = true
+                speakResponse(getNextJoke(), continueConversation = true)
             }
 
-            // ── 3. WhatsApp Messages ──
+            // ── 3. WhatsApp Voice Notes & Messages ──
+            trimmed.contains(Regex("(?i)\\b(?:try|test)\\b.*\\b(?:whatsapp|voice)\\s+note\\b")) ||
+            trimmed.contains(Regex("(?i)\\b(?:try|test)\\b.*\\bwhatsapp\\b")) -> {
+                sendWhatsAppVoiceNote("Amma", "Boss tested the voice note system and it is working now.")
+            }
+            voiceNoteRegex.find(trimmed) != null -> {
+                val match = voiceNoteRegex.find(trimmed)!!
+                val targetName = match.groupValues[1].trim()
+                val message = match.groupValues[2].trim()
+                sendWhatsAppVoiceNote(normalizeContactName(targetName), message)
+            }
+            voiceNoteSimpleRegex.find(trimmed) != null -> {
+                val match = voiceNoteSimpleRegex.find(trimmed)!!
+                val targetName = match.groupValues[1].trim()
+                val message = match.groupValues[2].trim()
+                sendWhatsAppVoiceNote(normalizeContactName(targetName), message)
+            }
+            sendWhatsAppRegex.find(trimmed) != null -> {
+                val match = sendWhatsAppRegex.find(trimmed)!!
+                val targetName = match.groupValues[1].trim()
+                val message = match.groupValues[2].trim()
+                sendWhatsAppTextMessage(normalizeContactName(targetName), message)
+            }
+            tellOnWhatsAppRegex.find(trimmed) != null -> {
+                val match = tellOnWhatsAppRegex.find(trimmed)!!
+                val targetName = match.groupValues[1].trim()
+                val message = match.groupValues[2].trim()
+                sendWhatsAppTextMessage(normalizeContactName(targetName), message)
+            }
+            whatsAppVerbRegex.find(trimmed) != null -> {
+                val match = whatsAppVerbRegex.find(trimmed)!!
+                val targetName = match.groupValues[1].trim()
+                val message = match.groupValues[2].trim()
+                sendWhatsAppTextMessage(normalizeContactName(targetName), message)
+            }
             isWhatsApp -> {
                 val fromMatch = Regex("(?i)(?:from|by)\\s+(.+)").find(trimmed)
                 val sender = fromMatch?.groupValues?.get(1)?.trim()
@@ -558,6 +1290,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             // ── 5. Phone Calls ──
+            callAndSayRegex.matches(trimmed) -> {
+                val match = callAndSayRegex.find(trimmed)
+                val spokenName = match?.groupValues?.get(1)?.trim() ?: return
+                val message = match?.groupValues?.get(2)?.trim() ?: return
+                val contactName = normalizeContactName(spokenName)
+                speakResponse("Sending voice note to $contactName.")
+                sendWhatsAppVoiceNote(contactName, message)
+            }
             callRegex.matches(trimmed) -> {
                 val spokenName = callRegex.find(trimmed)?.groupValues?.get(1) ?: return
                 val contactName = normalizeContactName(spokenName)
@@ -569,12 +1309,48 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 // Handled directly inside handleMapsAndDistanceCommand
             }
 
-            // ── 7. VLC Player & Media (Playlists, Albums, Artists, Songs, Shuffle) ──
+            // ── 7. Weather (Real-time live weather) ──
+            handleWeatherCommand(trimmed) -> {
+                // Handled directly inside handleWeatherCommand
+            }
+
+            // ── 8. VLC Player & Media (Playlists, Albums, Artists, Songs, Shuffle) ──
             handleMediaAndVlcCommand(trimmed) -> {
                 // Handled directly inside handleMediaAndVlcCommand
             }
 
-            // ── 8. General Apps ──
+            // ── 9. Darwinbox Attendance & 9-Hour Shift Tracking ──
+            // 9a. Shift status & checkout queries ("when is my checkout", "what time is checkout", "shift status", "how much shift time left", "darwinbox status")
+            trimmed.contains(Regex("(?i)\\b(when\\s*(is|do\\s*i)?\\s*(my\\s*)?(check\\s*out|checkout|clock\\s*out|leave)|what\\s*time\\s*(is|do\\s*i)?\\s*(my\\s*)?(check\\s*out|checkout|clock\\s*out|leave|check\\s*in|checkin)|how\\s*much\\s*(shift\\s*time|time)\\s*(is\\s*)?left|shift\\s*status|darwin\\s*box\\s*status|attendance\\s*status|did\\s*i\\s*(check\\s*in|check\\s*out|checkout)|when\\s*did\\s*i\\s*check\\s*in)\\b")) -> {
+                val status = DarwinboxShiftTracker.getShiftStatus(this)
+                speakResponse(status, continueConversation = true)
+            }
+
+            // 9b. Manual check-in logging ("I checked in at 9:15 am", "we checked in at 9:15 am", "set check in time to 9:15 am", "record check in at 9:15 am")
+            (trimmed.contains(Regex("(?i)\\b(checked\\s*in|chickened\\s*in|punched\\s*in|clocked\\s*in|check\\s*in\\s*time|set\\s*check\\s*in|record\\s*check\\s*in)\\b")) &&
+             trimmed.contains(Regex("(?i)\\b(\\d{1,2}[:.\\s]?\\d{0,2}\\s*(am|pm)?|at\\s+\\d{1,2})\\b"))) -> {
+                val info = DarwinboxShiftTracker.recordManualCheckInTime(this, trimmed)
+                if (info != null) {
+                    speakResponse(
+                        "Understood Boss! Logged your check-in at ${info.checkInTimeStr}. Your 9-hour shift completes at ${info.checkoutTimeStr}. I will give you an alert at ${info.alertTimeStr} if you haven't checked out.",
+                        continueConversation = true
+                    )
+                } else {
+                    speakResponse("I couldn't detect the exact check-in time, Boss. Please say something like 'I checked in at 9:15 AM'.", continueConversation = true)
+                }
+            }
+
+            // 9c. Darwinbox Attendance Automation (Check-In)
+            trimmed.contains(Regex("(?i)\\b(check\\s*in|checkin|chicken|chick\\s*in|cheque\\s*in|clock\\s*in|clockin|punch\\s*in|punchin|mark\\s*attendance|do\\s*attendance|attendance\\s*in|darwin\\s*box|darwinbox)\\b")) -> {
+                handleDarwinboxAttendance(DevilAccessibilityService.DarwinboxAction.CHECK_IN)
+            }
+
+            // 9d. Darwinbox Attendance Automation (Check-Out)
+            trimmed.contains(Regex("(?i)\\b(check\\s*out|checkout|chick\\s*out|cheque\\s*out|clock\\s*out|clockout|punch\\s*out|punchout|attendance\\s*out)\\b")) -> {
+                handleDarwinboxAttendance(DevilAccessibilityService.DarwinboxAction.CHECK_OUT)
+            }
+
+            // ── 10. General Apps ──
             openAppRegex.matches(trimmed) -> {
                 val appName = openAppRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: return
                 if (!openApp(appName)) {
@@ -584,6 +1360,32 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             else -> {
                 queryBackend(trimmed)
             }
+        }
+    }
+
+    private fun handleDarwinboxAttendance(action: DevilAccessibilityService.DarwinboxAction) {
+        val launchIntent = packageManager.getLaunchIntentForPackage("com.darwinbox.darwinbox")?.apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        } ?: Intent().apply {
+            component = android.content.ComponentName("com.darwinbox.darwinbox", "com.darwinbox.splashscreen.ui.SplashScreenActivity")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+
+        try {
+            DevilAccessibilityService.triggerDarwinbox(action)
+            startActivity(launchIntent)
+            if (action == DevilAccessibilityService.DarwinboxAction.CHECK_IN) {
+                val info = DarwinboxShiftTracker.recordCheckIn(this)
+                speakResponse("Opening Darwinbox and clocking you in, Boss! Shift check-in logged at ${info.checkInTimeStr}. Your 9-hour shift completes at ${info.checkoutTimeStr}. I will give you an alert at ${info.alertTimeStr} if you haven't checked out.")
+            } else {
+                val checkoutStr = DarwinboxShiftTracker.recordCheckOut(this)
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                notificationManager?.cancel(DarwinboxAlarmReceiver.NOTIFICATION_ID)
+                speakResponse("Opening Darwinbox and submitting your check out, Boss. Shift complete at $checkoutStr! Excellent work today.")
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to launch Darwinbox", e)
+            speakResponse("Could not open Darwinbox on your phone.")
         }
     }
 
@@ -608,6 +1410,139 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         return flat != null && flat.contains(pkgName)
     }
 
+    private fun formatPhoneNumberForWhatsApp(raw: String): String {
+        val digits = raw.replace(Regex("[^0-9]"), "")
+        return when {
+            digits.length == 10 -> "91$digits"
+            digits.length == 11 && digits.startsWith("0") -> "91" + digits.substring(1)
+            else -> digits
+        }
+    }
+
+    private fun sendWhatsAppVoiceNote(targetName: String, rawMessage: String) {
+        val contact = findContactByName(targetName)
+        if (contact == null) {
+            speakResponse("Contact $targetName not found in your phone.")
+            return
+        }
+
+        val cleanNumber = formatPhoneNumberForWhatsApp(contact.number)
+        val cleanMessage = rawMessage.trim().replace(Regex("^that\\s+", RegexOption.IGNORE_CASE), "")
+
+        val script = if (cleanMessage.startsWith("hello", ignoreCase = true) || cleanMessage.startsWith("hi", ignoreCase = true)) {
+            cleanMessage
+        } else {
+            "Hello ${contact.displayName}, this is DEVIL. Boss asked me to convey: $cleanMessage"
+        }
+
+        Log.i("MainActivity", "Synthesizing voice note for ${contact.displayName} ($cleanNumber): script='$script'")
+        transcript = "Synthesizing DEVIL voice note for ${contact.displayName}..."
+        assistantState = AssistantState.THINKING
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                val voiceDir = File(cacheDir, "voice_notes").apply { mkdirs() }
+                // Instantly purge prior voice note cache files to prevent storage bloat
+                voiceDir.listFiles()?.forEach { it.delete() }
+
+                val audioFile = File(voiceDir, "devil_voice_${System.currentTimeMillis()}.wav")
+                val utteranceId = "VOICE_NOTE_${System.currentTimeMillis()}"
+
+                voiceNoteSynthesisCallback = {
+                    try {
+                        Log.i("MainActivity", "Voice note written: ${audioFile.absolutePath}, bytes=${audioFile.length()}")
+                        val uri = FileProvider.getUriForFile(
+                            this@MainActivity,
+                            "${packageName}.fileprovider",
+                            audioFile
+                        )
+
+                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "audio/*"
+                            setPackage("com.whatsapp")
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            putExtra("jid", "$cleanNumber@s.whatsapp.net")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+
+                        DevilAccessibilityService.triggerAutoSend(contact.displayName)
+                        startActivity(sendIntent)
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "Direct WhatsApp audio intent failed, using fallback chooser", e)
+                        try {
+                            val uri = FileProvider.getUriForFile(
+                                this@MainActivity,
+                                "${packageName}.fileprovider",
+                                audioFile
+                            )
+                            val fallback = Intent(Intent.ACTION_SEND).apply {
+                                type = "audio/*"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(Intent.createChooser(fallback, "Share Voice Note with ${contact.displayName}").apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            })
+                        } catch (e2: Exception) {
+                            Log.e("MainActivity", "Fallback sharing failed", e2)
+                        }
+                    }
+                }
+
+                val res = tts.synthesizeToFile(script, Bundle(), audioFile, utteranceId)
+                if (res != TextToSpeech.SUCCESS) {
+                    Log.e("MainActivity", "tts.synthesizeToFile failed: code=$res")
+                    runOnUiThread {
+                        voiceNoteSynthesisCallback = null
+                        assistantState = AssistantState.IDLE
+                        speakResponse("Failed to synthesize voice note.")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error synthesizing voice note", e)
+                runOnUiThread {
+                    voiceNoteSynthesisCallback = null
+                    assistantState = AssistantState.IDLE
+                    speakResponse("Error preparing voice note.")
+                }
+            }
+        }
+    }
+
+    private fun sendWhatsAppTextMessage(targetName: String, rawMessage: String) {
+        val contact = findContactByName(targetName)
+        if (contact == null) {
+            speakResponse("Contact $targetName not found in your phone.")
+            return
+        }
+
+        val cleanNumber = formatPhoneNumberForWhatsApp(contact.number)
+        val cleanMessage = rawMessage.trim().replace(Regex("^that\\s+", RegexOption.IGNORE_CASE), "")
+        val formattedText = "😈 *DEVIL Message from Boss:*\n$cleanMessage"
+
+        speakResponse("Opening WhatsApp to send message to ${contact.displayName}.")
+
+        try {
+            val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanNumber&text=${Uri.encode(formattedText)}")
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                setPackage("com.whatsapp")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            DevilAccessibilityService.triggerAutoSend(contact.displayName)
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Direct WhatsApp text link failed", e)
+            try {
+                val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanNumber&text=${Uri.encode(formattedText)}")
+                startActivity(Intent(Intent.ACTION_VIEW, uri).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+            } catch (e2: Exception) {
+                Log.e("MainActivity", "Generic WhatsApp text failed", e2)
+            }
+        }
+    }
+
     private fun readWhatsAppMessages(fromSender: String? = null) {
         if (!isNotificationServiceEnabled()) {
             speakResponse("Please enable Notification Access for Nord Assistant in Settings so I can read WhatsApp messages.")
@@ -626,9 +1561,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         if (messages.isEmpty()) {
             val text = if (fromSender != null) {
-                "No recent WhatsApp messages from $fromSender."
+                "No new unread WhatsApp messages from $fromSender, Boss."
             } else {
-                "No recent WhatsApp messages found."
+                "No new unread WhatsApp messages, Boss. All caught up."
             }
             speakResponse(text)
             return
@@ -659,6 +1594,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     val summary = LlamaHelper.generateAnswer(prompt)
                     withContext(Dispatchers.Main) {
                         speakResponse(summary)
+                        // Mark spoken messages as read so DEVIL never repeats them
+                        for (msg in prioritized.take(4)) {
+                            WhatsAppNotificationService.markMessageAsSpokenAndRead(msg.sender, msg.message)
+                        }
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
@@ -674,12 +1613,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun speakPriorityFallback(messages: List<WhatsAppNotificationService.StoredMessage>) {
         val sb = StringBuilder()
         val (vip, regular) = messages.partition { isVipSender(it.sender) }
+        val spokenList = mutableListOf<WhatsAppNotificationService.StoredMessage>()
 
         if (vip.isNotEmpty()) {
             sb.append("Important priority alert. ")
             for (msg in vip.take(2)) {
                 val clean = if (msg.message.length > 90) msg.message.substring(0, 90) + "..." else msg.message
                 sb.append("From ${msg.sender}: $clean. ")
+                spokenList.add(msg)
             }
         }
         if (regular.isNotEmpty()) {
@@ -687,9 +1628,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             for (msg in regular.take(2)) {
                 val clean = if (msg.message.length > 70) msg.message.substring(0, 70) + "..." else msg.message
                 sb.append("${msg.sender} says: $clean. ")
+                spokenList.add(msg)
             }
         }
         speakResponse(sb.toString().trim())
+        // Mark all spoken messages as read so DEVIL never repeats them
+        for (msg in spokenList) {
+            WhatsAppNotificationService.markMessageAsSpokenAndRead(msg.sender, msg.message)
+        }
     }
 
     private fun readMessages(fromSender: String? = null, unreadOnly: Boolean = false) {
@@ -890,57 +1836,160 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun callContact(name: String) {
+    private fun findContactByName(name: String): ContactInfo? {
+        val cleanName = normalizeContactName(name).trim()
         val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
         val projection = arrayOf(
             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
             ContactsContract.CommonDataKinds.Phone.NUMBER
         )
 
-        val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
-        val selectionArgs = arrayOf("%$name%")
+        val isSyam = cleanName.equals("syam", ignoreCase = true) ||
+                     cleanName.equals("shyam", ignoreCase = true) ||
+                     cleanName.equals("sham", ignoreCase = true)
 
-        contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-            if (!cursor.moveToFirst()) {
-                transcript = "Contact not found: $name"
-                tts.speak("Contact not found", TextToSpeech.QUEUE_FLUSH, null, null)
-                return
-            }
+        val selection = if (isSyam) {
+            "(${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ? OR ${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?)"
+        } else {
+            "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
+        }
+        val selectionArgs = if (isSyam) {
+            arrayOf("%syam%", "%shyam%")
+        } else {
+            arrayOf("%$cleanName%")
+        }
 
-            data class ContactMatch(val displayName: String, val number: String, val score: Int)
-            val matches = mutableListOf<ContactMatch>()
-            do {
-                val displayName = cursor.getString(0) ?: continue
-                val number = cursor.getString(1) ?: continue
+        try {
+            contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) return null
 
-                val score = when {
-                    displayName.equals(name, ignoreCase = true) -> 3
-                    displayName.startsWith(name, ignoreCase = true) -> 2
-                    else -> 1
+                data class ContactMatch(val displayName: String, val number: String, val score: Int)
+                val matches = mutableListOf<ContactMatch>()
+                do {
+                    val displayName = cursor.getString(0) ?: continue
+                    val number = cursor.getString(1) ?: continue
+
+                    val score = when {
+                        displayName.equals(cleanName, ignoreCase = true) -> 10
+                        displayName.startsWith(cleanName, ignoreCase = true) -> 8
+                        isSyam && (displayName.contains("syam", ignoreCase = true) || displayName.contains("shyam", ignoreCase = true)) -> 9
+                        displayName.contains(cleanName, ignoreCase = true) -> 6
+                        else -> 1
+                    }
+                    matches.add(ContactMatch(displayName, number, score))
+                } while (cursor.moveToNext())
+
+                val best = matches.maxByOrNull { it.score * 1000 - it.displayName.length }
+                if (best != null) {
+                    return ContactInfo(best.displayName, best.number)
                 }
-                matches.add(ContactMatch(displayName, number, score))
-            } while (cursor.moveToNext())
-
-            val best = matches.maxByOrNull { it.score * 1000 - it.displayName.length }
-
-            if (best != null) {
-                val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:${best.number}"))
-                startActivity(callIntent)
-                transcript = "Calling ${best.displayName}"
-            } else {
-                transcript = "Contact not found: $name"
-                tts.speak("Contact not found", TextToSpeech.QUEUE_FLUSH, null, null)
             }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error finding contact: $name", e)
+        }
+        return null
+    }
+
+    private fun callContact(name: String) {
+        val contact = findContactByName(name)
+        if (contact != null) {
+            speakResponse("Calling ${contact.displayName}.")
+            val cleanNumber = contact.number.replace(Regex("[^0-9+]"), "")
+            val uri = Uri.parse("tel:$cleanNumber")
+            try {
+                if (checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
+                    val callIntent = Intent(Intent.ACTION_CALL, uri).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(callIntent)
+                } else {
+                    val dialIntent = Intent(Intent.ACTION_DIAL, uri).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(dialIntent)
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error placing call to ${contact.displayName}", e)
+                speakResponse("Could not place call to ${contact.displayName}.")
+            }
+        } else {
+            speakResponse("Contact $name not found in your phone.")
         }
     }
 
-    private fun findMatchingTrackUri(keyword: String, shuffle: Boolean = false, mediaType: String? = null): Uri? {
+    /**
+     * Find the playlist ID from MediaStore.Audio.Playlists by name.
+     * Returns the playlist ID or null if not found.
+     */
+    @Suppress("DEPRECATION")
+    private fun findPlaylistIdByName(playlistName: String): Long? {
+        try {
+            val playlistUri = MediaStore.Audio.Playlists.EXTERNAL_CONTENT_URI
+            val projection = arrayOf(
+                MediaStore.Audio.Playlists._ID,
+                MediaStore.Audio.Playlists.NAME
+            )
+            val cleanName = playlistName.trim()
+
+            // First try exact match (case-insensitive)
+            val exactSelection = "${MediaStore.Audio.Playlists.NAME} LIKE ?"
+            val exactArgs = arrayOf(cleanName)
+            contentResolver.query(playlistUri, projection, exactSelection, exactArgs, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    return cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Playlists._ID))
+                }
+            }
+
+            // Then try partial match
+            val partialSelection = "${MediaStore.Audio.Playlists.NAME} LIKE ?"
+            val partialArgs = arrayOf("%$cleanName%")
+            contentResolver.query(playlistUri, projection, partialSelection, partialArgs, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    return cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Playlists._ID))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error finding playlist by name: $playlistName", e)
+        }
+        return null
+    }
+
+    /**
+     * Get all track content URIs from a playlist by its ID.
+     */
+    @Suppress("DEPRECATION")
+    private fun getPlaylistTrackUris(playlistId: Long): List<Uri> {
+        val trackUris = mutableListOf<Uri>()
+        try {
+            val membersUri = MediaStore.Audio.Playlists.Members.getContentUri("external", playlistId)
+            val projection = arrayOf(MediaStore.Audio.Playlists.Members.AUDIO_ID)
+            contentResolver.query(membersUri, projection, null, null,
+                MediaStore.Audio.Playlists.Members.PLAY_ORDER)?.use { cursor ->
+                val audioIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Playlists.Members.AUDIO_ID)
+                while (cursor.moveToNext()) {
+                    val audioId = cursor.getLong(audioIdCol)
+                    trackUris.add(ContentUris.withAppendedId(
+                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, audioId))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error getting playlist tracks for ID: $playlistId", e)
+        }
+        return trackUris
+    }
+
+    data class MediaSearchResult(
+        val trackUris: List<Uri>,
+        val mediaType: String?
+    )
+
+    private fun findMatchingTracks(keyword: String, shuffle: Boolean = false, mediaType: String? = null): MediaSearchResult {
         val hasPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             checkSelfPermission(Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
         } else {
             checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
         }
-        if (!hasPermission) return null
+        if (!hasPermission) return MediaSearchResult(emptyList(), mediaType)
 
         try {
             val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
@@ -954,92 +2003,149 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val isGeneric = keyword.isBlank() || keyword.lowercase(Locale.getDefault()) in listOf("song", "songs", "music", "audio", "something", "track", "tracks")
             val cleanKw = keyword.trim()
 
-            val trackIds = mutableListOf<Long>()
+            val trackUris = mutableListOf<Uri>()
 
             if (isGeneric) {
                 val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
                 contentResolver.query(uri, projection, selection, null, null)?.use { cursor ->
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                    while (cursor.moveToNext() && trackIds.size < 500) {
-                        trackIds.add(cursor.getLong(idCol))
+                    while (cursor.moveToNext() && trackUris.size < 500) {
+                        trackUris.add(ContentUris.withAppendedId(uri, cursor.getLong(idCol)))
                     }
                 }
-            } else {
-                when (mediaType) {
-                    "album" -> {
-                        val selection = "${MediaStore.Audio.Media.ALBUM} LIKE ?"
-                        val selectionArgs = arrayOf("%$cleanKw%")
-                        contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-                            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                            while (cursor.moveToNext()) {
-                                trackIds.add(cursor.getLong(idCol))
-                            }
-                        }
-                    }
-                    "artist" -> {
-                        val selection = "${MediaStore.Audio.Media.ARTIST} LIKE ?"
-                        val selectionArgs = arrayOf("%$cleanKw%")
-                        contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-                            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                            while (cursor.moveToNext()) {
-                                trackIds.add(cursor.getLong(idCol))
-                            }
-                        }
-                    }
-                    "playlist" -> {
-                        val selection = "${MediaStore.Audio.Media.ALBUM} LIKE ? OR ${MediaStore.Audio.Media.ARTIST} LIKE ? OR ${MediaStore.Audio.Media.TITLE} LIKE ?"
-                        val selectionArgs = arrayOf("%$cleanKw%", "%$cleanKw%", "%$cleanKw%")
-                        contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-                            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                            while (cursor.moveToNext()) {
-                                trackIds.add(cursor.getLong(idCol))
-                            }
-                        }
-                    }
-                    else -> {
-                        val selection = "${MediaStore.Audio.Media.TITLE} LIKE ? OR ${MediaStore.Audio.Media.ALBUM} LIKE ? OR ${MediaStore.Audio.Media.ARTIST} LIKE ?"
-                        val selectionArgs = arrayOf("%$cleanKw%", "%$cleanKw%", "%$cleanKw%")
-                        contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-                            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                            while (cursor.moveToNext()) {
-                                trackIds.add(cursor.getLong(idCol))
-                            }
-                        }
-                    }
-                }
+                if (shuffle) trackUris.shuffle()
+                return MediaSearchResult(trackUris, mediaType)
+            }
 
-                // Fallback to broader search if specific album/artist search yielded 0 results
-                if (trackIds.isEmpty()) {
-                    val fallbackSelection = "${MediaStore.Audio.Media.TITLE} LIKE ? OR ${MediaStore.Audio.Media.ALBUM} LIKE ? OR ${MediaStore.Audio.Media.ARTIST} LIKE ?"
-                    val fallbackArgs = arrayOf("%$cleanKw%", "%$cleanKw%", "%$cleanKw%")
-                    contentResolver.query(uri, projection, fallbackSelection, fallbackArgs, null)?.use { cursor ->
+            when (mediaType) {
+                "playlist" -> {
+                    // Actually look up the real playlist from MediaStore.Audio.Playlists
+                    val playlistId = findPlaylistIdByName(cleanKw)
+                    if (playlistId != null) {
+                        val playlistTracks = getPlaylistTrackUris(playlistId)
+                        if (playlistTracks.isNotEmpty()) {
+                            trackUris.addAll(playlistTracks)
+                            if (shuffle) trackUris.shuffle()
+                            return MediaSearchResult(trackUris, "playlist")
+                        }
+                    }
+                    // If no system playlist found, return empty — let MEDIA_PLAY_FROM_SEARCH handle it
+                    Log.d("MainActivity", "No system playlist found for: $cleanKw")
+                }
+                "album" -> {
+                    val selection = "${MediaStore.Audio.Media.ALBUM} LIKE ?"
+                    val selectionArgs = arrayOf("%$cleanKw%")
+                    contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
                         val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                         while (cursor.moveToNext()) {
-                            trackIds.add(cursor.getLong(idCol))
+                            trackUris.add(ContentUris.withAppendedId(uri, cursor.getLong(idCol)))
+                        }
+                    }
+                }
+                "artist" -> {
+                    val selection = "${MediaStore.Audio.Media.ARTIST} LIKE ?"
+                    val selectionArgs = arrayOf("%$cleanKw%")
+                    contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                        while (cursor.moveToNext()) {
+                            trackUris.add(ContentUris.withAppendedId(uri, cursor.getLong(idCol)))
+                        }
+                    }
+                }
+                else -> {
+                    // For individual songs, try title match first
+                    val selection = "${MediaStore.Audio.Media.TITLE} LIKE ?"
+                    val selectionArgs = arrayOf("%$cleanKw%")
+                    contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                        while (cursor.moveToNext()) {
+                            trackUris.add(ContentUris.withAppendedId(uri, cursor.getLong(idCol)))
                         }
                     }
                 }
             }
 
-            if (trackIds.isNotEmpty()) {
-                val chosenId = if (shuffle) trackIds.random() else trackIds.first()
-                return ContentUris.withAppendedId(uri, chosenId)
+            // Fallback: broaden search if specific type yielded 0 results (not for playlist)
+            if (trackUris.isEmpty() && mediaType != "playlist") {
+                val fallbackSelection = "${MediaStore.Audio.Media.TITLE} LIKE ? OR ${MediaStore.Audio.Media.ALBUM} LIKE ? OR ${MediaStore.Audio.Media.ARTIST} LIKE ?"
+                val fallbackArgs = arrayOf("%$cleanKw%", "%$cleanKw%", "%$cleanKw%")
+                contentResolver.query(uri, projection, fallbackSelection, fallbackArgs, null)?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                    while (cursor.moveToNext()) {
+                        trackUris.add(ContentUris.withAppendedId(uri, cursor.getLong(idCol)))
+                    }
+                }
             }
+
+            if (shuffle) trackUris.shuffle()
+            return MediaSearchResult(trackUris, mediaType)
         } catch (e: Exception) {
-            Log.e("MainActivity", "Error finding local track for: $keyword", e)
+            Log.e("MainActivity", "Error finding local tracks for: $keyword", e)
         }
-        return null
+        return MediaSearchResult(emptyList(), mediaType)
     }
 
     private fun playMedia(query: String, shuffle: Boolean = false) {
-        val cleanQuery = query.replace(Regex("(?i)\\b(?:in|on|from|using|with)\\s+vlc(?:\\s+player)?\\b"), "")
+        val cleanQuery = normalizeSpokenCommand(query)
+                              .replace(Regex("(?i)\\b(?:in|on|from|using|with)\\s+vlc(?:\\s+player)?\\b"), "")
                               .replace(Regex("(?i)\\bvlc(?:\\s+player)?\\b"), "")
                               .trim()
         val isGeneric = cleanQuery.isEmpty() || cleanQuery.lowercase(Locale.getDefault()) in listOf("song", "songs", "music", "audio", "something", "track", "tracks", "all", "anything")
 
         try {
-            // Detect if query is asking for an album, playlist, artist, or track
-            val playlistRegex = Regex("(?i)(?:the\\s+)?playlist\\s+(.+)|(.+?)\\s+playlist")
+            val actionPrefix = if (shuffle) "Shuffling" else "Playing"
+
+            if (cleanQuery.lowercase(Locale.getDefault()) in listOf("playlist", "the playlist", "a playlist", "my playlist")) {
+                val listStr = vlcPlaylists.keys.joinToString(", ")
+                speakResponse("Which playlist would you like to play? In VLC you have: $listStr.")
+                return
+            }
+
+            // ── A. Check if user is asking for a Playlist ──
+            val playlistRegex = Regex("(?i)(?:the\\s+|my\\s+)?playlist\\s+(?:called\\s+|named\\s+)?(.+)|(.+?)\\s+playlist")
+            var playlistTarget: String? = null
+
+            if (playlistRegex.matches(cleanQuery)) {
+                val match = playlistRegex.find(cleanQuery)
+                val raw = (match?.groupValues?.get(1)?.ifEmpty { null } ?: match?.groupValues?.get(2) ?: cleanQuery).trim()
+                playlistTarget = raw.replace(Regex("(?i)^(?:the|my|a|called|named)\\s+"), "").trim()
+            } else {
+                // If query matches a known VLC playlist name directly (e.g., "play mood", "play mass", "play slow")
+                val candidate = cleanQuery.replace(Regex("(?i)^(?:the|my|a)\\s+"), "").trim().lowercase(Locale.getDefault())
+                if (vlcPlaylists.containsKey(candidate)) {
+                    playlistTarget = candidate
+                }
+            }
+
+            if (playlistTarget != null) {
+                val cleanPlaylistName = playlistTarget.replace(Regex("[^a-zA-Z0-9\\s_-]"), "").trim().lowercase(Locale.getDefault())
+                val trackCount = vlcPlaylists[cleanPlaylistName]
+
+                val vlcPlaylistIntent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                    putExtra(SearchManager.QUERY, cleanPlaylistName)
+                    putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/playlist")
+                    putExtra("android.intent.extra.focus", "vnd.android.cursor.item/playlist")
+                    putExtra(MediaStore.EXTRA_MEDIA_PLAYLIST, cleanPlaylistName)
+                    putExtra("android.intent.extra.playlist", cleanPlaylistName)
+                    putExtra("extra_playlist", cleanPlaylistName)
+                    if (shuffle) {
+                        putExtra("android.intent.extra.SHUFFLE", true)
+                        putExtra("shuffle", true)
+                        putExtra("EXTRA_SHUFFLE", true)
+                    }
+                    setPackage("org.videolan.vlc")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+
+                if (vlcPlaylistIntent.resolveActivity(packageManager) != null) {
+                    startActivity(vlcPlaylistIntent)
+                    val countMsg = if (trackCount != null) " with $trackCount songs" else ""
+                    speakResponse("$actionPrefix playlist $cleanPlaylistName in VLC$countMsg.")
+                    return
+                }
+            }
+
+            // ── B. Check for Albums and Artists ──
             val albumRegex = Regex("(?i)(?:the\\s+)?album\\s+(.+)|(.+?)\\s+album")
             val artistPattern1 = Regex("(?i)(?:all\\s+)?(?:songs?\\s+(?:of|by|from)|artist)\\s+(.+)")
             val artistPattern2 = Regex("(?i)(?:all\\s+)?(.+?)\\s+(?:songs?|hits|all\\s+songs)")
@@ -1051,13 +2157,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             var mediaType: String? = null
 
             when {
-                playlistRegex.matches(cleanQuery) -> {
-                    val match = playlistRegex.find(cleanQuery)
-                    targetName = (match?.groupValues?.get(1)?.ifEmpty { null } ?: match?.groupValues?.get(2) ?: cleanQuery).trim()
-                    mediaFocus = "vnd.android.cursor.item/playlist"
-                    targetExtraKey = MediaStore.EXTRA_MEDIA_PLAYLIST
-                    mediaType = "playlist"
-                }
                 albumRegex.matches(cleanQuery) -> {
                     val match = albumRegex.find(cleanQuery)
                     targetName = (match?.groupValues?.get(1)?.ifEmpty { null } ?: match?.groupValues?.get(2) ?: cleanQuery).trim()
@@ -1086,32 +2185,51 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            val actionPrefix = if (shuffle) "Shuffling" else "Playing"
             val displayTitle = if (targetName.isBlank() || isGeneric) "music" else targetName
 
-            // 1. Try launching the matched local track directly in VLC
-            val localTrackUri = findMatchingTrackUri(targetName, shuffle = shuffle, mediaType = mediaType)
-            if (localTrackUri != null) {
-                val directPlayIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(localTrackUri, "audio/*")
-                    setPackage("org.videolan.vlc")
-                    if (shuffle) {
-                        putExtra("android.intent.extra.SHUFFLE", true)
-                        putExtra("shuffle", true)
-                        putExtra("EXTRA_SHUFFLE", true)
-                    }
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+            // 1. Try finding matching local tracks
+            val searchResult = findMatchingTracks(targetName, shuffle = shuffle, mediaType = mediaType)
+            val matchedUris = searchResult.trackUris
+
+            if (matchedUris.isNotEmpty()) {
+                val speakText = when (mediaType) {
+                    "album" -> "$actionPrefix album $displayTitle in VLC"
+                    "artist" -> "$actionPrefix songs by $displayTitle in VLC"
+                    else -> "$actionPrefix $displayTitle in VLC"
                 }
-                if (directPlayIntent.resolveActivity(packageManager) != null) {
-                    startActivity(directPlayIntent)
-                    val speakText = when (mediaType) {
-                        "album" -> "$actionPrefix album $displayTitle in VLC"
-                        "artist" -> "$actionPrefix songs by $displayTitle in VLC"
-                        "playlist" -> "$actionPrefix playlist $displayTitle in VLC"
-                        else -> "$actionPrefix $displayTitle in VLC"
+
+                if (matchedUris.size == 1) {
+                    val directPlayIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(matchedUris.first(), "audio/*")
+                        setPackage("org.videolan.vlc")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
                     }
-                    speakResponse(speakText)
-                    return
+                    if (directPlayIntent.resolveActivity(packageManager) != null) {
+                        startActivity(directPlayIntent)
+                        speakResponse(speakText)
+                        return
+                    }
+                } else {
+                    val multiIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(matchedUris.first(), "audio/*")
+                        setPackage("org.videolan.vlc")
+                        val locationList = ArrayList<String>()
+                        for (trackUri in matchedUris) {
+                            locationList.add(trackUri.toString())
+                        }
+                        putStringArrayListExtra("extra_uri_list", ArrayList(locationList.drop(1).map { it }))
+                        if (shuffle) {
+                            putExtra("android.intent.extra.SHUFFLE", true)
+                            putExtra("shuffle", true)
+                            putExtra("EXTRA_SHUFFLE", true)
+                        }
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    }
+                    if (multiIntent.resolveActivity(packageManager) != null) {
+                        startActivity(multiIntent)
+                        speakResponse(speakText)
+                        return
+                    }
                 }
             }
 
@@ -1119,11 +2237,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val vlcSearchIntent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
                 putExtra(SearchManager.QUERY, targetName)
                 putExtra(MediaStore.EXTRA_MEDIA_FOCUS, mediaFocus)
+                putExtra("android.intent.extra.focus", mediaFocus)
                 if (targetExtraKey != null) {
                     putExtra(targetExtraKey, targetName)
                 }
                 if (isArtist) {
                     putExtra(MediaStore.EXTRA_MEDIA_ARTIST, targetName)
+                    putExtra("android.intent.extra.artist", targetName)
                 }
                 if (shuffle) {
                     putExtra("android.intent.extra.SHUFFLE", true)
@@ -1139,7 +2259,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val speakText = when (mediaType) {
                     "album" -> "$actionPrefix album $displayTitle in VLC"
                     "artist" -> "$actionPrefix songs by $displayTitle in VLC"
-                    "playlist" -> "$actionPrefix playlist $displayTitle in VLC"
                     else -> "$actionPrefix $displayTitle in VLC"
                 }
                 speakResponse(speakText)
@@ -1169,25 +2288,44 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 transcript = "DEVIL is thinking..."
             }
             try {
-                // Confident, concise prompt identifying as DEVIL
-                val system = "You are DEVIL, an AI voice assistant. Always identify as DEVIL. Answer in 1 short sentence in plain conversational text."
-                val fullPrompt = "$system\nUser: $query\nDEVIL:"
-                val answer = LlamaHelper.generateAnswer(fullPrompt)
+                val answer = LlamaHelper.generateAnswer(query)
                 withContext(Dispatchers.Main) {
-                    speakResponse(answer)
+                    inConversationSession = true
+                    speakResponse(answer, continueConversation = true)
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
+                    inConversationSession = false
                     speakResponse("I'm having trouble analyzing that query right now.")
                 }
             }
         }
     }
 
+    private fun clearAppCache() {
+        scope.launch(Dispatchers.IO) {
+            try {
+                cacheDir?.deleteRecursively()
+                externalCacheDir?.deleteRecursively()
+                Log.i("MainActivity", "App cache purged successfully")
+            } catch (e: Exception) {
+                Log.w("MainActivity", "Cache clear warning", e)
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        clearAppCache()
         if (::speechRecognizer.isInitialized) speechRecognizer.destroy()
         if (::tts.isInitialized) tts.shutdown()
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                audioManager.clearCommunicationDevice()
+            }
+            audioManager.isSpeakerphoneOn = false
+            audioManager.mode = AudioManager.MODE_NORMAL
+        } catch (_: Exception) {}
         LlamaHelper.release()
         scope.cancel()
     }

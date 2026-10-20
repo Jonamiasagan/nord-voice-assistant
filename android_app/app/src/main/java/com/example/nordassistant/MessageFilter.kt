@@ -64,4 +64,49 @@ object MessageFilter {
 
         return false
     }
+
+    /**
+     * Checks if a notification/message is from a group chat.
+     * Used to ensure DEVIL never speaks out group notifications or group messages.
+     */
+    fun isGroupMessage(
+        title: String,
+        text: String,
+        subText: String = "",
+        isGroupConversation: Boolean = false,
+        conversationTitle: String? = null
+    ): Boolean {
+        if (isGroupConversation) return true
+        if (!conversationTitle.isNullOrBlank()) return true
+
+        val lowerTitle = title.lowercase(Locale.getDefault()).trim()
+        val lowerText = text.lowercase(Locale.getDefault()).trim()
+        val lowerSubText = subText.lowercase(Locale.getDefault()).trim()
+
+        // e.g. "T Group (2 messages)", "Family (5 messages)"
+        if (lowerTitle.contains(Regex("\\(\\d+\\s+messages?\\)"))) return true
+        if (lowerSubText.contains(Regex("\\(\\d+\\s+messages?\\)"))) return true
+
+        // WhatsApp group sender format: "Group: Sender" or "Sender @ Group"
+        if (title.contains(":") || title.contains(" @ ")) return true
+
+        // WhatsApp group message body format: "<ParticipantName>: <Message>" (e.g., "Chakradhar: https://...")
+        // In personal 1-on-1 chats, WhatsApp message bodies NEVER start with a name followed by a colon.
+        if (text.trim().matches(Regex("^[^:\\n]{1,40}:\\s+.*", RegexOption.DOT_MATCHES_ALL))) return true
+
+        // Group message content prefixed by WhatsApp participant name: "~ Sudheer: hello" or "~ Sudheer"
+        if (text.trim().startsWith("~") || text.trim().matches(Regex("^~\\s*[^:]+:?.*"))) return true
+
+        // Title contains common group keywords
+        if (lowerTitle.contains("group") || lowerTitle.contains("team") ||
+            lowerTitle.contains("batch") || lowerTitle.contains("family") ||
+            lowerTitle.contains("club") || lowerTitle.contains("community")) {
+            return true
+        }
+
+        // Generic multiple message summary e.g. "3 messages" or "2 new messages"
+        if (lowerText.matches(Regex("^\\d+\\s+messages?$")) || lowerText.matches(Regex("^\\d+\\s+new\\s+messages?$"))) return true
+
+        return false
+    }
 }

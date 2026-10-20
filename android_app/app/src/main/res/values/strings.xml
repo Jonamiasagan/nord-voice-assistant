@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">NordAssistant</string>
+    <string name="accessibility_service_description">Enables DEVIL to automatically dispatch messages and voice notes hands-free in WhatsApp.</string>
 </resources>

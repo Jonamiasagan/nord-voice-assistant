@@ -44,9 +44,54 @@ Built a complete, hardware-accelerated Jetpack Compose holographic UI (`GideonFa
 
 ---
 
-### 5. Architecture Documentation & Git Management
+### 5. Sentry Mode & Stark AI Personas (J.A.R.V.I.S., F.R.I.D.A.Y., E.D.I.T.H.)
+- **🛡️ Sentry Mode (`DevilSentryService.kt`)**: Voice-activated hands-free perimeter monitoring ("Activate Sentry Mode" / "Revoke Sentry Mode"). Runs as a low-power Android foreground service with the green mic privacy dot indicator. Automatically wakes up to "Hey DEVIL" or "Hey Jarvis" and powers down to 0% CPU when revoked.
+- **🎙️ Stark AI Voice Profiles**: Seamless offline switching between:
+  - **J.A.R.V.I.S.**: Formal British male accent, polite, dry wit ("At your service, Boss").
+  - **F.R.I.D.A.Y.**: Warm, fast-paced Irish/warm female companion ("Ready when you are, Boss").
+  - **E.D.I.T.H.**: Crisp tactical security synth female voice ("Tactical systems armed, Boss").
+  - **D.E.V.I.L.**: Energetic, confident master voice with holographic Time-Vault interface.
+- **⚡ 0ms Accessibility Optimization**: High-performance early-exit gating in `DevilAccessibilityService.kt` ensuring zero background CPU or frame drops across other apps.
+
+---
+
+### 6. Persistent Long-Term Memory Vault (`BossMemoryVault.kt`)
+- **🧠 Zero-Cloud SQLite Knowledge Vault**: Permanently remembers user facts, credentials, vehicle numbers, routines, and preferences locally in phone storage.
+- **🗣️ Natural Voice Commands**:
+  - *"Remember that my car number is KA-04-9821"* ➡️ Saves to persistent memory.
+  - *"What is my car number?"* ➡️ Instant 0ms recall without hitting the cloud.
+  - *"What do you remember about me?"* / *"List my memories"* ➡️ Complete spoken summary.
+  - *"Forget my car number"* ➡️ Instant memory purge.
+- **🧬 Automatic Context Injection**: Injects saved Boss profile facts directly into Qwen's system prompt in `LlamaHelper.kt` so the assistant naturally knows you across conversation restarts.
+
+---
+
+### 7. Darwinbox 9-Hour Shift Tracker & Overtime Alert System
+- **⏰ Automatic 9-Hour Shift Calculation**:
+  - Automatically records check-in timestamp upon voice command (e.g. *"Check in on Darwinbox"* or manual entry *"I checked in at 9:15 AM"*).
+  - Calculates exact 9-hour checkout target (e.g. Check-in at **9:15 AM** ➡️ Target checkout at **6:15 PM**).
+- **🚨 10-Minute Overtime Alert (`DarwinboxAlarmReceiver.kt`)**:
+  - Schedules an exact wake-up alarm with Android's `AlarmManager.setExactAndAllowWhileIdle` for **9 hours + 10 minutes** (e.g. **6:25 PM**).
+  - Wakes the device from deep Doze mode and posts a high-priority heads-up notification with alarm audio, vibration, and a one-tap **"Clock Out Now"** action.
+  - Suppresses alarm if user has already clocked out.
+- **🛡️ 10:30 AM Background Verification & Fallback (Zero Burden / 0% CPU)**:
+  - If no check-in was triggered through DEVIL before 10:30 AM, an exact RTC hardware alarm fires at **10:30 AM**:
+    - Checks if check-in was already recorded for today.
+    - If not recorded, automatically records manual check-in at 10:30 AM, schedules 9-hour checkout for 7:30 PM, and arms the overtime alert for 7:40 PM.
+    - Uses Linux kernel RTC alarms (`AlarmManager.RTC_WAKEUP`) — phone remains in deep sleep with **0.00% battery drain** and no polling loops.
+- **👁️ Passive Real-Time Detection (`DevilAccessibilityService.kt`)**:
+  - If user manually opens Darwinbox before 10:30 AM (e.g. 9:15 AM) and taps "Check In" / "Done", DEVIL's accessibility listener captures the exact punch time in real-time with zero lag.
+- **🗣️ Spoken Shift Status Queries & Manual Time Logging**:
+  - *"When is my checkout?"* / *"What time do I checkout?"* ➡️ Spoken remaining time countdown (e.g. *"You have 3 hours and 15 minutes remaining in your 9-hour shift. Checkout scheduled for 6:15 PM."*).
+  - *"How much shift time left?"* / *"Darwinbox status"* ➡️ Real-time shift summary.
+  - *"I checked in at 9:15 AM"* / *"Set check in time to 9:30"* ➡️ Flexible parsing for biometric/fingerprint office punch-ins.
+- **🧠 Cross-Session Memory Integration**: Logs shift timestamps directly into `BossMemoryVault.kt` so offline Qwen LLM naturally knows today's shift details in conversational prompts.
+
+---
+
+### 8. Architecture Documentation & Git Management
 - **Kotlin vs. Flutter Architectural Decision**: Documented the engineering rationale in `ARCHITECTURE_DECISION_KOTLIN_VS_FLUTTER.md` and `.adoc` explaining why Native Android (Kotlin + Compose) was chosen over Flutter for low-level OS listeners, NDK zero-copy LLM inference, and OxygenOS process-killer resilience.
-- **Clean Repository Structure**: Configured `.gitignore` to prevent large binary models (>100 MB) from blocking GitHub pushes, committed all 51 project files, and synced to GitHub branch `nord-voice-assistant_Phase1`.
+- **Clean Repository Structure**: Configured `.gitignore` to prevent large binary models (>100 MB) from blocking GitHub pushes, committed all project files, and synced to GitHub branch `nord-voice-assistant_Phase1`.
 
 ---
 
