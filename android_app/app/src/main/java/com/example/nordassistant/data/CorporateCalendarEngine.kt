@@ -354,4 +354,29 @@ object CorporateCalendarEngine {
             Log.w(TAG, "Error registering holiday into vault", e)
         }
     }
+
+    /**
+     * Answers: "What is today's date?" / "What is the date?".
+     */
+    fun getTodayDateSpoken(): String {
+        val formatted = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()).format(Date())
+        return "Today is $formatted, Boss."
+    }
+
+    /**
+     * Answers: "What is the time?" / "What time is it?".
+     */
+    fun getCurrentTimeSpoken(): String {
+        val formatted = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+        return "It is currently $formatted, Boss."
+    }
+
+    /**
+     * Answers: "What day is today?" / "Which day is it?".
+     */
+    fun getTodayDaySpoken(): String {
+        val formatted = SimpleDateFormat("EEEE", Locale.getDefault()).format(Date())
+        return "Today is $formatted, Boss."
+    }
 }
+

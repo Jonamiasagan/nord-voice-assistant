@@ -1340,6 +1340,24 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             // ── 9b. Calendar & Saturday Intelligence ──
+            // Date query ("what is today's date", "today's date", "what's the date", "what date is today")
+            trimmed.contains(Regex("(?i)\\b(what\\s*(is|'s)?\\s*(the|today'?s?)?\\s*date|today'?s?\\s*date|what\\s*date\\s*(is\\s*it|is\\s*today)?)\\b")) -> {
+                val ans = CorporateCalendarEngine.getTodayDateSpoken()
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // Current Time query ("what is the time", "what time is it", "current time", "time now")
+            trimmed.contains(Regex("(?i)\\b(what\\s*(is|'s)?\\s*(the)?\\s*time|current\\s*time|time\\s*now|what\\s*time\\s*is\\s*it)\\b")) -> {
+                val ans = CorporateCalendarEngine.getCurrentTimeSpoken()
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // Day of week query ("what day is today", "what day is it", "which day is today")
+            trimmed.contains(Regex("(?i)\\b(what\\s*day\\s*is\\s*(it|today)|which\\s*day\\s*is\\s*(it|today))\\b")) -> {
+                val ans = CorporateCalendarEngine.getTodayDaySpoken()
+                speakResponse(ans, continueConversation = true)
+            }
+
             // Saturday queries ("is coming saturday a second saturday", "is next saturday 2nd saturday")
             (trimmed.contains(Regex("(?i)\\b(second|2nd)\\s*saturday\\b")) &&
              trimmed.contains(Regex("(?i)\\b(is|coming|next|this|approaching)\\b"))) -> {
