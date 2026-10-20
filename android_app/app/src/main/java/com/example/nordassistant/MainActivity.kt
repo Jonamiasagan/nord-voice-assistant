@@ -867,6 +867,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun normalizeSpokenCommand(command: String): String {
         var norm = command.trim()
+        // Fix Darwinbox phonetic misrecognitions: "net box", "netbox", "down box", "dial box", "diamond box", "darling box", "darwin box", "darwin's box"
+        norm = norm.replace(Regex("(?i)\\b(net\\s*box|netbox|down\\s*box|dial\\s*box|diamond\\s*box|darling\\s*box|darwin\\s+box|darwin's\\s*box)\\b"), "darwinbox")
         // Fix VLC phonetic misrecognitions: "vluc", "v l c", "v.l.c.", "velc", "vl c"
         norm = norm.replace(Regex("(?i)\\b(?:vluc|v\\.?\\s*l\\.?\\s*c\\.?|velc|vl\\s+c)\\b"), "vlc")
         // Fix "play list" / "play lists" / "play-list" -> "playlist" / "playlists"
@@ -1391,6 +1393,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             // ── 9c. Darwinbox Leaves & Holiday Intelligence ──
+            // 9c-0. Today's holiday status ("is today a holiday", "today is a holiday", "did you check darwinbox that today is a holiday", "why is today a holiday", "how do you know today is a holiday")
+            trimmed.contains(Regex("(?i)\\b(is\\s*today\\s*(a\\s*)?holiday|today\\s*(is\\s*)?(a\\s*)?holiday|why\\s*(is\\s*)?today\\s*(is\\s*)?(a\\s*)?holiday|how\\s*(do\\s*)?you\\s*know\\s*(that\\s*)?(it\\s*is\\s*a\\s*|today\\s*is\\s*(a\\s*)?)?holiday|today'?s?\\s*holiday|holiday\\s*today|check\\s*(the\\s*)?darwinbox\\s*(that\\s*)?today|check\\s*darwinbox.*holiday)\\b")) -> {
+                val ans = CorporateCalendarEngine.getTodayHolidayStatus()
+                speakResponse(ans, continueConversation = true)
+            }
+
             // Next holiday queries ("when is the next holiday", "what is the next holiday", "upcoming holiday")
             trimmed.contains(Regex("(?i)\\b(when\\s*is\\s*(the\\s*)?next\\s*holiday|what\\s*is\\s*(the\\s*)?next\\s*holiday|next\\s*holiday|upcoming\\s*holiday)\\b")) -> {
                 val ans = CorporateCalendarEngine.getNextHoliday()

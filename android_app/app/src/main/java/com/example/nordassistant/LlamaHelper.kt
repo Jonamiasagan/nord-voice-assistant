@@ -86,7 +86,7 @@ object LlamaHelper {
             // Load via llama-kotlin-android with optimized speed and stop sequences
             model = LlamaModel.load(internalModel.absolutePath) {
                 contextSize = 512
-                threads = 6
+                threads = 4 // Optimal for Snapdragon 7 Gen 3: 4 performance cores (1x A715 + 3x A715) without efficiency core wait
                 temperature = 0.15f
                 topP = 0.8f
                 maxTokens = 55
@@ -166,6 +166,10 @@ object LlamaHelper {
                         promptBuilder.append("Never refuse benign conversational requests. Answer directly and engagingly in 1 to 3 concise spoken sentences without bullet points, asterisks, or markdown.")
                     }
                 }
+
+                val currentDateStr = java.text.SimpleDateFormat("EEEE, MMMM d, yyyy", java.util.Locale.getDefault()).format(java.util.Date())
+                val currentTimeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date())
+                promptBuilder.append("\nCurrent Date and Time: $currentDateStr, $currentTimeStr.")
 
                 val savedMemories = memoryVault?.getMemoryContextForPrompt()
                 if (!savedMemories.isNullOrBlank()) {

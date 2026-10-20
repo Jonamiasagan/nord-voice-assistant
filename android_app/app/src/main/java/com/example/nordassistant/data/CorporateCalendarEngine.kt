@@ -245,6 +245,44 @@ object CorporateCalendarEngine {
     // ═════════════════════════════════════════════════════════════════════
 
     /**
+     * Answers: "Is today a holiday?" / "Did you check Darwinbox that today is a holiday?" / "Why is today a holiday?".
+     */
+    fun getTodayHolidayStatus(): String {
+        val now = Calendar.getInstance()
+        val month = now.get(Calendar.MONTH) + 1
+        val day = now.get(Calendar.DAY_OF_MONTH)
+        val dayOfWeek = now.get(Calendar.DAY_OF_WEEK)
+        val todayFormatted = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(now.time)
+
+        // 1. Check if Sunday
+        if (dayOfWeek == Calendar.SUNDAY) {
+            return "Yes Boss! Today is Sunday, $todayFormatted, which is a weekly holiday."
+        }
+
+        // 2. Check if 2nd or 4th Saturday
+        if (dayOfWeek == Calendar.SATURDAY) {
+            val monthSats = getSaturdaysForMonth(now)
+            val thisSat = monthSats.find { it.dayOfMonth == day }
+            if (thisSat != null && thisSat.isOffDay) {
+                return "Yes Boss! Today is the ${thisSat.rankStr} Saturday of the month ($todayFormatted), which is an official corporate holiday."
+            }
+        }
+
+        // 3. Check official Darwinbox calendar holidays
+        val holiday = standardHolidays.find { it.month == month && it.day == day }
+        if (holiday != null) {
+            val extra = if (holiday.description.isNotEmpty()) " (${holiday.description})" else ""
+            return "Yes Boss! According to the Darwinbox corporate calendar, today, $todayFormatted, is an official holiday for ${holiday.name}$extra."
+        }
+
+        // 4. If normal working day, append next holiday
+        val allHolidays = standardHolidays.sortedBy { it.toCalendar().timeInMillis }
+        val next = allHolidays.firstOrNull { it.toCalendar().timeInMillis > now.timeInMillis }
+        val nextInfo = if (next != null) " The next upcoming holiday is ${next.name} on ${next.shortDate()}." else ""
+        return "No Boss. Today, $todayFormatted, is a normal working day according to the Darwinbox corporate calendar.$nextInfo"
+    }
+
+    /**
      * Answers: "When is the next holiday?" / "What is the next upcoming holiday?".
      */
     fun getNextHoliday(cal: Calendar = Calendar.getInstance()): String {
