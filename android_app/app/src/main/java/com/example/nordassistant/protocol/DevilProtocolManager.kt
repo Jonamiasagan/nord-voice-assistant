@@ -155,11 +155,19 @@ object DevilProtocolManager {
     }
 
     /**
+     * Helper to detect if user is asking to explain/describe a protocol rather than switch into it.
+     */
+    private fun isExplanationQuery(input: String): Boolean {
+        return input.contains(Regex("(?i)\\b(what\\s+(is|are|does)|who\\s+(is|are)|tell\\s+me\\s+about|explain|describe|details\\s+(of|about)?|meaning\\s+of)\\b"))
+    }
+
+    /**
      * Flexible phonetic matching for "Barn Door Protocol" accommodating
      * Indian English pronunciation variations (e.g. "baarn", "baan", "baron", "burn", "bahn").
      */
     fun isBarnDoorTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
+        if (isExplanationQuery(lower)) return false
         if (lower.contains("barn door") || lower.contains("barndoor") || lower.contains("barn-door")) return true
         if (lower.contains("meeting mode") || lower.contains("silent protocol")) return true
 
@@ -182,6 +190,7 @@ object DevilProtocolManager {
      */
     fun isHousePartyTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
+        if (isExplanationQuery(lower)) return false
         return lower.contains(Regex("(?i)\\b(house\\s*party|development\\s*mode|dev\\s*mode|busy\\s*mode|coding\\s*mode|hackathon\\s*mode)\\b"))
     }
 
@@ -191,7 +200,9 @@ object DevilProtocolManager {
      */
     fun isJarvisTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
-        return lower.contains(Regex("(?i)\\b(jarvis|jarves|jervis|jarvys|javis|zarvis|gyaras|gyras|gyrus|gyros|j\\.a\\.r\\.v\\.i\\.s\\.|professional\\s*mode|business\\s*mode|office\\s*mode|work\\s*mode)\\b"))
+        if (isExplanationQuery(lower)) return false
+        return lower.contains(Regex("(?i)\\b(switch\\s+to\\s+jarvis|activate\\s+jarvis|engage\\s+jarvis|jarvis\\s+protocol|protocol\\s+jarvis|jarvis\\s+mode|professional\\s*mode|business\\s*mode|office\\s*mode|work\\s*mode|hey\\s+jarvis|hello\\s+jarvis|hi\\s+jarvis)\\b")) ||
+               lower == "jarvis" || lower == "jervis" || lower == "jarves"
     }
 
     /**
@@ -199,6 +210,7 @@ object DevilProtocolManager {
      */
     fun isBabyMonitorTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
+        if (isExplanationQuery(lower)) return false
         return lower.contains(Regex("(?i)\\b(baby\\s*monitor|babymonitor|sunset\\s*protocol|chill\\s*(mode|protocol)|leisure\\s*mode|relax\\s*mode|evening\\s*mode|switch\\s+to\\s+chill)\\b"))
     }
 
@@ -208,6 +220,7 @@ object DevilProtocolManager {
      */
     fun isFridayTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
+        if (isExplanationQuery(lower)) return false
         // If input contains calendar, holiday, working day, leave, shift, or date inquiry terms, it is NEVER a protocol trigger
         if (lower.contains(Regex("(?i)\\b(holiday|holidays|off|working|leave|leaves|shift|calendar|schedule|meeting|date|day|coming|this|next|last|every|on\\s+friday|is\\s+friday)\\b"))) {
             return false
@@ -221,7 +234,9 @@ object DevilProtocolManager {
      */
     fun isEdithTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
-        return lower.contains(Regex("(?i)\\b(edith|e\\.d\\.i\\.t\\.h\\.|switch\\s+to\\s+edith|protocol\\s+edith|edith\\s+mode|tactical\\s+mode|defense\\s+mode)\\b"))
+        if (isExplanationQuery(lower)) return false
+        return lower.contains(Regex("(?i)\\b(switch\\s+to\\s+edith|activate\\s+edith|engage\\s+edith|edith\\s+protocol|protocol\\s+edith|edith\\s+mode|tactical\\s+mode|defense\\s+mode|hey\\s+edith|hello\\s+edith|hi\\s+edith|e\\.d\\.i\\.t\\.h\\.)\\b")) ||
+               lower == "edith"
     }
 
     /**
@@ -229,6 +244,7 @@ object DevilProtocolManager {
      */
     fun isSentryModeTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
+        if (isExplanationQuery(lower)) return false
         return lower.contains(Regex("(?i)\\b((activate|engage|turn\\s*on|start|enter|enable)\\s+sentry(\\s*mode)?|sentry\\s*mode\\s*(on|active|engage|start)|sentry\\s*mode)\\b"))
     }
 

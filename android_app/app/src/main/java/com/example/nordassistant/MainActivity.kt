@@ -362,8 +362,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
                 DevilProtocol.JARVIS -> {
                     // Formal, calm, British male accent
-                    tts.setSpeechRate(1.05f)
-                    tts.setPitch(0.95f)
+                    tts.setSpeechRate(1.02f)
+                    tts.setPitch(0.92f)
                     val britishVoice = availableVoices?.find {
                         it.locale.country.equals("GB", ignoreCase = true) &&
                         (it.name.contains("rjs", ignoreCase = true) || it.name.contains("gbb", ignoreCase = true) || it.name.contains("male", ignoreCase = true))
@@ -374,34 +374,50 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     }
                 }
                 DevilProtocol.FRIDAY -> {
-                    // Warm, witty Irish / warm female companion accent
-                    tts.setSpeechRate(1.10f)
-                    tts.setPitch(1.24f)
+                    // Warm, witty female companion accent (EXPLICITLY NON-BRITISH to never collide with JARVIS)
+                    tts.setSpeechRate(1.15f)
+                    tts.setPitch(1.28f)
                     val fridayVoice = availableVoices?.find {
-                        it.locale.country.equals("IE", ignoreCase = true) ||
-                        it.name.contains("dfz", ignoreCase = true) ||
-                        it.name.contains("gbd", ignoreCase = true) ||
-                        (it.name.contains("female", ignoreCase = true) && !it.name.contains("male", ignoreCase = true))
+                        !it.locale.country.equals("GB", ignoreCase = true) &&
+                        !it.name.contains("gb", ignoreCase = true) &&
+                        (it.locale.country.equals("IE", ignoreCase = true) ||
+                         it.name.contains("dfz", ignoreCase = true) ||
+                         it.name.contains("iom", ignoreCase = true) ||
+                         it.name.contains("iob", ignoreCase = true))
+                    } ?: availableVoices?.find {
+                        !it.locale.country.equals("GB", ignoreCase = true) &&
+                        !it.name.contains("gb", ignoreCase = true) &&
+                        (it.name.contains("female", ignoreCase = true) || it.features?.contains("female") == true)
                     }
-                    if (fridayVoice != null) tts.voice = fridayVoice
+                    if (fridayVoice != null) {
+                        tts.voice = fridayVoice
+                        Log.i("MainActivity", "Selected F.R.I.D.A.Y. companion voice: ${fridayVoice.name}")
+                    }
                 }
                 DevilProtocol.EDITH -> {
                     // Crisp, analytical, tactical US female synth voice
                     tts.setSpeechRate(1.20f)
-                    tts.setPitch(1.05f)
+                    tts.setPitch(1.02f)
                     val edithVoice = availableVoices?.find {
-                        it.name.contains("sfg", ignoreCase = true) ||
-                        it.name.contains("tpf", ignoreCase = true) ||
-                        (it.locale.country.equals("US", ignoreCase = true) && it.name.contains("female", ignoreCase = true))
+                        !it.locale.country.equals("GB", ignoreCase = true) &&
+                        !it.name.contains("gb", ignoreCase = true) &&
+                        (it.name.contains("tpf", ignoreCase = true) ||
+                         it.name.contains("sfg", ignoreCase = true) ||
+                         (it.locale.country.equals("US", ignoreCase = true) && it.name.contains("female", ignoreCase = true)))
                     }
-                    if (edithVoice != null) tts.voice = edithVoice
+                    if (edithVoice != null) {
+                        tts.voice = edithVoice
+                        Log.i("MainActivity", "Selected E.D.I.T.H. tactical voice: ${edithVoice.name}")
+                    }
                 }
                 DevilProtocol.BABY_MONITOR -> {
-                    // Warm, informal female accent (F.R.I.D.A.Y. / KAREN)
+                    // Warm, informal female relaxation voice
                     tts.setSpeechRate(1.08f)
-                    tts.setPitch(1.26f)
+                    tts.setPitch(1.25f)
                     val warmFemale = availableVoices?.find {
-                        it.name.contains("iob", ignoreCase = true) || it.name.contains("gbd", ignoreCase = true) || it.name.contains("female", ignoreCase = true)
+                        !it.locale.country.equals("GB", ignoreCase = true) &&
+                        !it.name.contains("gb", ignoreCase = true) &&
+                        (it.name.contains("iom", ignoreCase = true) || it.name.contains("female", ignoreCase = true))
                     }
                     if (warmFemale != null) tts.voice = warmFemale
                 }
@@ -412,7 +428,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     val masterVoice = availableVoices?.find {
                         it.name.contains("iob", ignoreCase = true) || it.name.contains("tpd", ignoreCase = true)
                     }
-                    if (masterVoice != null) tts.voice = masterVoice
+                    if (masterVoice != null) {
+                        tts.voice = masterVoice
+                        Log.i("MainActivity", "Selected Boss Mode master voice: ${masterVoice.name}")
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -1132,7 +1151,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val isBossCheck = trimmed.matches(Regex("(?i).*(?:who\\s+is\\s+(?:your|the)\\s+boss|do\\s+you\\s+have\\s+a\\s+boss|who\\s+is\\s+in\\s+charge|who\\s+runs\\s+(?:you|this)).*"))
         val isUserIdentityCheck = trimmed.matches(Regex("(?i).*(?:who\\s+am\\s+i|about\\s+me|tell\\s+me\\s+about\\s+me|what\\s+is\\s+my\\s+role|my\\s+identity|do\\s+you\\s+know\\s+who\\s+am\\s+i).*"))
         val isAuthCheck = trimmed.matches(Regex("(?i).*(?:who\\s+is\\s+authorized|authorization\\s+status|who\\s+can\\s+talk|who\\s+has\\s+access).*"))
-        val isProtocolsInquiry = trimmed.contains(Regex("(?i)\\b(protocols?|list\\s+(?:out\\s+)?(?:what\\s+)?protocols?|what\\s+(?:are\\s+the\\s+|kind\\s+of\\s+)?protocols?|which\\s+protocols?|tell\\s+me\\s+about\\s+protocols?)\\b"))
 
         when {
             // ── 0. Instant Greetings Fast-Path ──
@@ -1167,8 +1185,57 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     speakResponse("Boss-only mode is active. Master voice clearance is required. No outside guests are authorized.")
                 }
             }
-            isProtocolsInquiry -> {
-                speakResponse("I have several operational protocols, Boss: 1. Boss Mode for master clearance, 2. J.A.R.V.I.S. Protocol for formal British assistance, 3. F.R.I.D.A.Y. Protocol for tactical companion mode, 4. E.D.I.T.H. Protocol for tactical defense, 5. Sentry Mode for hands-free perimeter monitoring, 6. Barn Door Protocol for silent meetings, and 7. House Party Protocol for focused development.")
+            // ── 0.0 Protocol Specific Inquiries & Explanations ──
+            // J.A.R.V.I.S. Specific Inquiry ("what is jarvis", "who is jarvis", "tell me about jarvis", "what is jarvis protocol")
+            (trimmed.contains(Regex("(?i)\\b(what\\s+(is|are|does)|who\\s+is|tell\\s+me\\s+about|explain|describe|details\\s+(of|about)?|meaning\\s+of)\\b.*\\b(j\\.?a\\.?r\\.?v\\.?i\\.?s\\.?|jarvis|jarves|jervis)\\b")) ||
+             trimmed.contains(Regex("(?i)\\b(j\\.?a\\.?r\\.?v\\.?i\\.?s\\.?|jarvis|jarves|jervis)\\b.*\\b(protocol|mode)\\s+(details|info|explanation)\\b"))) -> {
+                inConversationSession = true
+                speakResponse("J.A.R.V.I.S. is your formal British AI protocol, Boss. When activated, it adopts a formal British gentleman persona, prioritizes office and business communications, and shields you from leisure notifications.", continueConversation = true)
+            }
+
+            // F.R.I.D.A.Y. Specific Inquiry ("what is friday", "who is friday", "tell me about friday", "what is friday protocol")
+            (trimmed.contains(Regex("(?i)\\b(what\\s+(is|are|does)|who\\s+is|tell\\s+me\\s+about|explain|describe|details\\s+(of|about)?|meaning\\s+of)\\b.*\\b(f\\.?r\\.?i\\.?d\\.?a\\.?y\\.?|friday|fryday)\\b")) ||
+             trimmed.contains(Regex("(?i)\\b(f\\.?r\\.?i\\.?d\\.?a\\.?y\\.?|friday|fryday)\\b.*\\b(protocol|mode)\\s+(details|info|explanation)\\b"))) -> {
+                inConversationSession = true
+                speakResponse("F.R.I.D.A.Y. is your tactical companion AI protocol, Boss. When engaged, she speaks with a warm, energetic companion persona, synchronizes device subsystems, and provides agile day-to-day tactical assistance.", continueConversation = true)
+            }
+
+            // E.D.I.T.H. Specific Inquiry ("what is edith", "who is edith", "tell me about edith", "what is edith protocol")
+            (trimmed.contains(Regex("(?i)\\b(what\\s+(is|are|does)|who\\s+is|tell\\s+me\\s+about|explain|describe|details\\s+(of|about)?|meaning\\s+of)\\b.*\\b(e\\.?d\\.?i\\.?t\\.?h\\.?|edith)\\b")) ||
+             trimmed.contains(Regex("(?i)\\b(e\\.?d\\.?i\\.?t\\.?h\\.?|edith)\\b.*\\b(protocol|mode)\\s+(details|info|explanation)\\b"))) -> {
+                inConversationSession = true
+                speakResponse("E.D.I.T.H. stands for 'Even Dead, I'm The Hero', Boss. It is your tactical defense protocol that locks down entertainment apps, heightens security monitoring, and utilizes a precise, analytical voice profile.", continueConversation = true)
+            }
+
+            // Barn Door Specific Inquiry ("what is barn door", "tell me about barn door", "what is barn door protocol")
+            trimmed.contains(Regex("(?i)\\b(what\\s+(is|are|does)|tell\\s+me\\s+about|explain|describe)\\b.*\\b(barn\\s*door|silent\\s*protocol|meeting\\s*mode)\\b")) -> {
+                inConversationSession = true
+                speakResponse("Barn Door Protocol is your silent meeting and stealth mode, Boss. It silences all media, standard ringtones, and notifications except for VIP contacts, keeping DEVIL operating in a quiet whispered voice.", continueConversation = true)
+            }
+
+            // House Party Specific Inquiry ("what is house party", "tell me about house party", "what is house party protocol")
+            trimmed.contains(Regex("(?i)\\b(what\\s+(is|are|does)|tell\\s+me\\s+about|explain|describe)\\b.*\\b(house\\s*party|development\\s*mode|dev\\s*mode|coding\\s*mode)\\b")) -> {
+                inConversationSession = true
+                speakResponse("House Party Protocol is your high-focus development and coding mode, Boss. It filters out distractions and only permits critical technical notifications from GitHub, Termux, and Jira so you can code without interruption.", continueConversation = true)
+            }
+
+            // Baby Monitor / Chill Mode Specific Inquiry ("what is baby monitor", "tell me about baby monitor", "what is chill mode")
+            trimmed.contains(Regex("(?i)\\b(what\\s+(is|are|does)|tell\\s+me\\s+about|explain|describe)\\b.*\\b(baby\\s*monitor|chill\\s*mode|sunset\\s*protocol|leisure\\s*mode)\\b")) -> {
+                inConversationSession = true
+                speakResponse("Baby Monitor Protocol is your leisure and relaxation mode, Boss. It blocks work communication from Teams, Slack, Outlook, and Darwinbox while unlocking entertainment and music for your evening downtime.", continueConversation = true)
+            }
+
+            // Sentry Mode Specific Inquiry ("what is sentry mode", "tell me about sentry mode", "explain sentry mode")
+            trimmed.contains(Regex("(?i)\\b(what\\s+(is|are|does)|tell\\s+me\\s+about|explain|describe)\\b.*\\bsentry(\\s*mode)?\\b")) -> {
+                inConversationSession = true
+                speakResponse("Sentry Mode is DEVIL's hands-free perimeter monitoring protocol, Boss. It activates background audio listening so you can give commands completely hands-free by saying 'Hey DEVIL'.", continueConversation = true)
+            }
+
+            // General Protocols List Inquiry ("what are the protocols", "list protocols", "tell me about protocols")
+            (!trimmed.contains(Regex("(?i)\\b(jarvis|friday|edith|barn|house|baby|chill|sentry|boss)\\b")) &&
+             trimmed.contains(Regex("(?i)\\b(list\\s+(?:all\\s+)?protocols?|what\\s+(?:are\\s+the\\s+|kind\\s+of\\s+)?protocols?|which\\s+protocols?|tell\\s+me\\s+about\\s+(?:all\\s+)?protocols?|protocols\\s+list)\\b"))) -> {
+                inConversationSession = true
+                speakResponse("I have several operational protocols, Boss: 1. Boss Mode for master clearance, 2. J.A.R.V.I.S. Protocol for formal British assistance, 3. F.R.I.D.A.Y. Protocol for tactical companion mode, 4. E.D.I.T.H. Protocol for tactical defense, 5. Sentry Mode for hands-free perimeter monitoring, 6. Barn Door Protocol for silent meetings, and 7. House Party Protocol for focused development.", continueConversation = true)
             }
 
             // ── Sentry Mode Activation & Revocation (Hands-Free Wake-Word) ──
