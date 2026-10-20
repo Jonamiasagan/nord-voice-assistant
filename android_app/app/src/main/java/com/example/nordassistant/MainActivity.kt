@@ -1407,8 +1407,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakResponse(ans, continueConversation = true)
             }
 
-            // 9c-2. Next upcoming holiday queries ("when is the next holiday", "what is the next holiday", "upcoming holiday")
-            trimmed.contains(Regex("(?i)\\b(when\\s*is\\s*(the\\s*)?next\\s*holiday|what\\s*is\\s*(the\\s*)?next\\s*holiday|next\\s*holiday|upcoming\\s*holiday)\\b")) -> {
+            // 9c-1b. Day after tomorrow holiday status ("is day after tomorrow a holiday", "is day after tomorrow off")
+            trimmed.contains(Regex("(?i)\\b(day\\s*after\\s*tomorrow.*(holiday|off|working)|is\\s*day\\s*after\\s*tomorrow\\s*(is\\s*)?(a\\s*)?(holiday|off|working))\\b")) -> {
+                val ans = CorporateCalendarEngine.getDayAfterTomorrowHolidayStatus()
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // 9c-1c. Tomorrow's holiday status ("is tomorrow a holiday", "is tomorrow is a holiday", "tomorrow holiday", "is tomorrow off", "is tomorrow working")
+            trimmed.contains(Regex("(?i)\\b(is\\s*tomorrow\\s*(is\\s*)?(a\\s*)?(holiday|off|working(\\s*day)?)|tomorrow\\s*(is\\s*)?(a\\s*)?(holiday|off|working(\\s*day)?)|check\\s*tomorrow.*(holiday|off|working)|tomorrow'?s?\\s*holiday|holiday.*tomorrow)\\b")) -> {
+                val ans = CorporateCalendarEngine.getTomorrowHolidayStatus()
+                speakResponse(ans, continueConversation = true)
+            }
+
+            // 9c-2. Next upcoming holiday queries ("when is the next holiday", "what is the next holiday", "what is the next coming holiday", "upcoming holiday", "coming holiday")
+            trimmed.contains(Regex("(?i)\\b((when|what)\\s*is\\s*(the\\s*)?(next|upcoming|coming)\\s*(coming\\s*)?holiday|next\\s*(coming\\s*)?holiday|upcoming\\s*holiday|coming\\s*holiday)\\b")) -> {
                 val ans = CorporateCalendarEngine.getNextHoliday()
                 speakResponse(ans, continueConversation = true)
             }
@@ -1428,8 +1440,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakResponse(ans, continueConversation = true)
             }
 
-            // 9c-4. Specific day holiday check ("is coming friday a holiday", "is monday a holiday", "is tomorrow a holiday")
-            trimmed.contains(Regex("(?i)\\b(is\\s*(tomorrow|coming|next|this)?\\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\s*(a\\s*)?holiday)\\b")) -> {
+            // 9c-4. Specific day holiday check ("is coming friday a holiday", "is monday a holiday", "is friday off")
+            trimmed.contains(Regex("(?i)\\b(is\\s*(coming|next|this)?\\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\s*(a\\s*)?(holiday|off|working(\\s*day)?)|(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\s*(is\\s*)?(a\\s*)?(holiday|off|working))\\b")) -> {
                 val match = Regex("(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)").find(trimmed)
                 val day = match?.value ?: "friday"
                 val ans = CorporateCalendarEngine.isUpcomingDayHoliday(day)
@@ -1438,7 +1450,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             // 9c-5. General holiday fallback ("any holiday", "tell me holiday", "check holiday")
             trimmed.contains(Regex("(?i)\\b(holidays?|leave\\s*section)\\b")) -> {
-                val ans = CorporateCalendarEngine.getTodayHolidayStatus()
+                val todayStatus = CorporateCalendarEngine.getTodayHolidayStatus()
+                val nextHoliday = CorporateCalendarEngine.getNextHoliday()
+                val ans = if (todayStatus.startsWith("Yes Boss!")) {
+                    "$todayStatus $nextHoliday"
+                } else {
+                    nextHoliday
+                }
                 speakResponse(ans, continueConversation = true)
             }
 
