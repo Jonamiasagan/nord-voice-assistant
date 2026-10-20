@@ -143,6 +143,10 @@ object DarwinboxShiftTracker {
         val today = getTodayDateString()
 
         if (shiftDate != today || !isCheckedInToday(context)) {
+            val offStatus = CorporateCalendarEngine.isTodayOffDay()
+            if (offStatus.isOffDay) {
+                return "Today is an official holiday for ${offStatus.reason}, Boss! You do not need to check in or check out on Darwinbox today. Enjoy your day off!"
+            }
             return "No Darwinbox check-in has been recorded for today, Boss. Would you like me to clock you in now?"
         }
 
@@ -187,6 +191,10 @@ object DarwinboxShiftTracker {
         val today = getTodayDateString()
 
         if (shiftDate != today || !isCheckedInToday(context)) {
+            val offStatus = CorporateCalendarEngine.isTodayOffDay()
+            if (offStatus.isOffDay) {
+                return "You don't need to leave at any specific time today, Boss! Today is an official holiday for ${offStatus.reason}. Enjoy your day off!"
+            }
             return "No Darwinbox check-in has been recorded for today, Boss. Would you like me to clock you in now?"
         }
 
@@ -226,6 +234,10 @@ object DarwinboxShiftTracker {
         val today = getTodayDateString()
 
         if (shiftDate != today || !isCheckedInToday(context)) {
+            val offStatus = CorporateCalendarEngine.isTodayOffDay()
+            if (offStatus.isOffDay) {
+                return "Zero shift hours required today, Boss! Today is an official holiday for ${offStatus.reason}."
+            }
             return "No Darwinbox check-in has been logged for today, Boss. Would you like me to clock you in now?"
         }
 

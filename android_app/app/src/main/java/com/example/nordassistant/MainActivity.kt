@@ -1393,6 +1393,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             // ── 9c. Darwinbox Leaves & Holiday Intelligence ──
+            // 9c-0. Attendance necessity on holidays ("no need to check in right", "do I need to check in today", "if today is a holiday then no need to check in or check out")
+            trimmed.contains(Regex("(?i)\\b(no\\s*need\\s*to\\s*(check\\s*in|checkout|check\\s*out)|do\\s*(i|we)\\s*(need|have)\\s*to\\s*(check\\s*in|check\\s*out)|is\\s*(check\\s*in|checkout|check\\s*out)\\s*(required|needed)|should\\s*(i|we)\\s*(check\\s*in|check\\s*out))\\b")) -> {
+                val ans = CorporateCalendarEngine.isCheckInRequiredToday()
+                speakResponse(ans, continueConversation = true)
+            }
+
             // 9c-1. Today's holiday status ("is today a holiday", "today is a holiday", "did you check darwinbox that today is a holiday", "why is today a holiday", "how do you know today is a holiday", "is today holiday", "check holiday today")
             trimmed.contains(Regex("(?i)\\b(is\\s*today\\s*(a\\s*)?holiday|today\\s*(is\\s*)?(a\\s*)?holiday|why\\s*(is\\s*)?today\\s*(is\\s*)?(a\\s*)?holiday|how\\s*(do\\s*)?you\\s*know\\s*(that\\s*)?(it\\s*is\\s*a\\s*|today\\s*is\\s*(a\\s*)?)?holiday|today'?s?\\s*holiday|holiday\\s*today|today.*holiday|holiday.*today)\\b")) -> {
                 val ans = CorporateCalendarEngine.getTodayHolidayStatus()

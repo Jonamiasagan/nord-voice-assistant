@@ -63,15 +63,22 @@ class DarwinboxAlarmReceiver : BroadcastReceiver() {
         // 1. Reschedule for tomorrow morning 10:30 AM
         DarwinboxShiftTracker.scheduleDaily1030AmCheck(context)
 
-        // 2. Check if user already clocked in earlier today (e.g. 9:15 AM)
+        // 2. Check if today is an official corporate holiday or weekend off (Sunday / 2nd or 4th Saturday)
+        val offStatus = CorporateCalendarEngine.isTodayOffDay()
+        if (offStatus.isOffDay) {
+            Log.i(TAG, "10:30 AM Check: Today is a corporate holiday/off day (${offStatus.reason}). Stand down - no check-in or checkout required today.")
+            return
+        }
+
+        // 3. Check if user already clocked in earlier today (e.g. 9:15 AM)
         if (DarwinboxShiftTracker.isCheckedInToday(context)) {
             Log.i(TAG, "10:30 AM Check: Check-in was already recorded earlier today. Shift active.")
             return
         }
 
-        // 3. User requested: If not checked in before 10:30 AM, assume manual check-in at 10:30 AM
+        // 4. User requested: If not checked in before 10:30 AM on a working day, assume manual check-in at 10:30 AM
         // Record check-in at 10:30 AM, calculate 9-hour checkout (7:30 PM), and set overtime alert (7:40 PM)
-        Log.i(TAG, "10:30 AM Check: No check-in recorded yet. Assuming manual check-in at 10:30 AM.")
+        Log.i(TAG, "10:30 AM Check: No check-in recorded yet on a working day. Assuming manual check-in at 10:30 AM.")
         val info = DarwinboxShiftTracker.recordCheckIn(context, System.currentTimeMillis())
 
         post1030AmShiftArmedNotification(context, info)

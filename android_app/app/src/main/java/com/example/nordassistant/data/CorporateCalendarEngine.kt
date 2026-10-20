@@ -244,6 +244,49 @@ object CorporateCalendarEngine {
     // ── 3. DARWINBOX & CORPORATE HOLIDAY INTELLIGENCE ─────────────────
     // ═════════════════════════════════════════════════════════════════════
 
+    data class TodayOffStatus(
+        val isOffDay: Boolean,
+        val reason: String
+    )
+
+    fun isTodayOffDay(): TodayOffStatus {
+        val now = Calendar.getInstance()
+        val month = now.get(Calendar.MONTH) + 1
+        val day = now.get(Calendar.DAY_OF_MONTH)
+        val dayOfWeek = now.get(Calendar.DAY_OF_WEEK)
+
+        if (dayOfWeek == Calendar.SUNDAY) {
+            return TodayOffStatus(true, "Sunday (Weekly Off)")
+        }
+
+        if (dayOfWeek == Calendar.SATURDAY) {
+            val monthSats = getSaturdaysForMonth(now)
+            val thisSat = monthSats.find { it.dayOfMonth == day }
+            if (thisSat != null && thisSat.isOffDay) {
+                return TodayOffStatus(true, "${thisSat.rankStr} Saturday (Corporate Holiday)")
+            }
+        }
+
+        val holiday = standardHolidays.find { it.month == month && it.day == day }
+        if (holiday != null) {
+            return TodayOffStatus(true, holiday.name)
+        }
+
+        return TodayOffStatus(false, "")
+    }
+
+    /**
+     * Answers: "Do I need to check in today?" / "No need to check in right?".
+     */
+    fun isCheckInRequiredToday(): String {
+        val offStatus = isTodayOffDay()
+        return if (offStatus.isOffDay) {
+            "Exactly, Boss! According to the Darwinbox corporate calendar, today is an official holiday for ${offStatus.reason}. You do not need to check in or check out today. Enjoy your day off!"
+        } else {
+            "Yes Boss, today is a regular working day according to the Darwinbox corporate calendar, so check-in and check-out are required."
+        }
+    }
+
     /**
      * Answers: "Is today a holiday?" / "Did you check Darwinbox that today is a holiday?" / "Why is today a holiday?".
      */
