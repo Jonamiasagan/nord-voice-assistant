@@ -72,8 +72,8 @@ object CorporateCalendarEngine {
         Holiday("Gandhi Jayanti", 10, 2, 2026, description = "National Holiday - Long Weekend"),
         Holiday("Maha Navami", 10, 19, 2026),
         Holiday("Dussehra / Vijaya Dashami", 10, 20, 2026),
-        Holiday("Darwinbox Corporate Holiday", 10, 21, 2026, description = "Darwinbox Holiday"),
-        Holiday("Darwinbox Corporate Holiday", 10, 26, 2026, description = "Darwinbox Holiday"),
+        Holiday("Company Holiday", 10, 21, 2026),
+        Holiday("Company Holiday", 10, 26, 2026),
         Holiday("Diwali / Deepavali", 11, 8, 2026, description = "Festival of Lights"),
         Holiday("Govardhan Puja / Balipratipada", 11, 9, 2026, description = "Long Weekend"),
         Holiday("Guru Nanak Jayanti", 11, 24, 2026),
@@ -322,9 +322,9 @@ object CorporateCalendarEngine {
     fun isCheckInRequiredToday(): String {
         val offStatus = isTodayOffDay()
         return if (offStatus.isOffDay) {
-            "Exactly, Boss! According to the Darwinbox corporate calendar, today is an official holiday for ${offStatus.reason}. You do not need to check in or check out today. Enjoy your day off!"
+            "No check-in needed today, Boss! Today is an official holiday for ${offStatus.reason}. Enjoy your day off!"
         } else {
-            "Yes Boss, today is a regular working day according to the Darwinbox corporate calendar, so check-in and check-out are required."
+            "Yes Boss, today is a regular working day, so check-in is required."
         }
     }
 
@@ -340,7 +340,7 @@ object CorporateCalendarEngine {
 
         // 1. Check if Sunday
         if (dayOfWeek == Calendar.SUNDAY) {
-            return "Yes Boss! Today is Sunday, $todayFormatted, which is a weekly holiday."
+            return "Yes Boss! Today is Sunday ($todayFormatted), which is a weekly holiday."
         }
 
         // 2. Check if 2nd or 4th Saturday
@@ -352,18 +352,17 @@ object CorporateCalendarEngine {
             }
         }
 
-        // 3. Check official Darwinbox calendar holidays
+        // 3. Check official holidays
         val holiday = getAllHolidays().find { it.month == month && it.day == day }
         if (holiday != null) {
-            val extra = if (holiday.description.isNotEmpty()) " (${holiday.description})" else ""
-            return "Yes Boss! According to the Darwinbox corporate calendar, today, $todayFormatted, is an official holiday for ${holiday.name}$extra."
+            return "Yes Boss! Today ($todayFormatted) is an official holiday for ${holiday.name}."
         }
 
         // 4. If normal working day, append next holiday
         val allHolidays = getAllHolidays().sortedBy { it.toCalendar().timeInMillis }
         val next = allHolidays.firstOrNull { it.toCalendar().timeInMillis > now.timeInMillis }
         val nextInfo = if (next != null) " The next upcoming holiday is ${next.name} on ${next.shortDate()}." else ""
-        return "No Boss. Today, $todayFormatted, is a normal working day according to the Darwinbox corporate calendar.$nextInfo"
+        return "No Boss. Today ($todayFormatted) is a normal working day.$nextInfo"
     }
 
     /**
@@ -378,7 +377,7 @@ object CorporateCalendarEngine {
 
         // 1. Check if Sunday
         if (dayOfWeek == Calendar.SUNDAY) {
-            return "Yes Boss! Tomorrow is Sunday, $tomorrowFormatted, which is a weekly off."
+            return "Yes Boss! Tomorrow is Sunday ($tomorrowFormatted), which is a weekly off."
         }
 
         // 2. Check if 2nd or 4th Saturday
@@ -390,18 +389,17 @@ object CorporateCalendarEngine {
             }
         }
 
-        // 3. Check official Darwinbox calendar holidays
+        // 3. Check official holidays
         val holiday = getAllHolidays().find { it.month == month && it.day == day }
         if (holiday != null) {
-            val extra = if (holiday.description.isNotEmpty()) " (${holiday.description})" else ""
-            return "Yes Boss! Tomorrow, $tomorrowFormatted, is an official holiday for ${holiday.name}$extra according to the Darwinbox corporate calendar."
+            return "Yes Boss! Tomorrow ($tomorrowFormatted) is an official holiday for ${holiday.name}."
         }
 
         // 4. Normal working day
         val allHolidays = getAllHolidays().sortedBy { it.toCalendar().timeInMillis }
         val next = allHolidays.firstOrNull { it.toCalendar().timeInMillis > tomorrow.timeInMillis }
         val nextInfo = if (next != null) " The next upcoming holiday is ${next.name} on ${next.shortDate()}." else ""
-        return "No Boss. Tomorrow, $tomorrowFormatted, is a normal working day according to the Darwinbox corporate calendar.$nextInfo"
+        return "No Boss. Tomorrow ($tomorrowFormatted) is a normal working day.$nextInfo"
     }
 
     /**
@@ -415,7 +413,7 @@ object CorporateCalendarEngine {
         val formatted = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(cal.time)
 
         if (dayOfWeek == Calendar.SUNDAY) {
-            return "Yes Boss! Day after tomorrow is Sunday, $formatted, which is a weekly off."
+            return "Yes Boss! Day after tomorrow is Sunday ($formatted), which is a weekly off."
         }
 
         if (dayOfWeek == Calendar.SATURDAY) {
@@ -428,14 +426,13 @@ object CorporateCalendarEngine {
 
         val holiday = getAllHolidays().find { it.month == month && it.day == day }
         if (holiday != null) {
-            val extra = if (holiday.description.isNotEmpty()) " (${holiday.description})" else ""
-            return "Yes Boss! Day after tomorrow, $formatted, is an official holiday for ${holiday.name}$extra according to the Darwinbox corporate calendar."
+            return "Yes Boss! Day after tomorrow ($formatted) is an official holiday for ${holiday.name}."
         }
 
         val allHolidays = getAllHolidays().sortedBy { it.toCalendar().timeInMillis }
         val next = allHolidays.firstOrNull { it.toCalendar().timeInMillis > cal.timeInMillis }
         val nextInfo = if (next != null) " The next upcoming holiday is ${next.name} on ${next.shortDate()}." else ""
-        return "No Boss. Day after tomorrow, $formatted, is a normal working day according to the Darwinbox corporate calendar.$nextInfo"
+        return "No Boss. Day after tomorrow ($formatted) is a normal working day.$nextInfo"
     }
 
     /**
@@ -456,14 +453,14 @@ object CorporateCalendarEngine {
             val nextInfo = if (next != null) {
                 val nextCal = next.toCalendar()
                 val diffDays = ((nextCal.timeInMillis - now.timeInMillis) / (1000 * 60 * 60 * 24)).toInt()
-                val extra = if (next.description.isNotEmpty()) " (${next.description})" else ""
-                " The next upcoming holiday after today is ${next.name}$extra in $diffDays days on ${next.formattedDate()}."
+                val dayStr = if (diffDays == 1) "tomorrow (${next.shortDate()})" else "in $diffDays days on ${next.formattedDate()}"
+                " The next upcoming holiday is ${next.name} $dayStr."
             } else ""
-            return "Today is already an official corporate holiday for ${todayHoliday.name}, Boss!$nextInfo"
+            return "Today is already an official holiday for ${todayHoliday.name}, Boss!$nextInfo"
         }
 
         if (next == null) {
-            return "No more official corporate holidays remaining in the current calendar year, Boss. The next holiday will be New Year's Day on January 1st."
+            return "No more official corporate holidays remaining this year, Boss. The next holiday will be New Year's Day on January 1st."
         }
 
         val nextCal = next.toCalendar()
@@ -475,8 +472,7 @@ object CorporateCalendarEngine {
             else -> "in $diffDays days on ${next.formattedDate()}"
         }
 
-        val extra = if (next.description.isNotEmpty()) " (${next.description})" else ""
-        return "The next corporate holiday is ${next.name}$extra, $countdownStr, Boss."
+        return "The next holiday is ${next.name}, $countdownStr, Boss."
     }
 
     /**
@@ -502,24 +498,20 @@ object CorporateCalendarEngine {
 
         val items = mutableListOf<String>()
         for (h in remainingHolidays) {
-            val extra = if (h.description.isNotEmpty()) " (${h.description})" else ""
-            items.add("${h.name} on ${h.shortDate()}$extra")
+            items.add("${h.name} on ${h.shortDate()}")
         }
         for (sat in remainingSats) {
-            items.add("${sat.rankStr} Saturday on ${sat.dateStr} (Weekend Off)")
+            items.add("${sat.rankStr} Saturday off on ${sat.dateStr}")
         }
-
-        val todayOff = isTodayOffDay()
-        val todayPrefix = if (todayOff.isOffDay) "Today is an official holiday for ${todayOff.reason}. " else ""
 
         if (items.isEmpty()) {
             val allHolidays = getAllHolidays()
             val next = allHolidays.firstOrNull { it.toCalendar().timeInMillis > cal.timeInMillis }
             val nextInfo = if (next != null) " The next upcoming holiday is ${next.name} on ${next.shortDate()}." else ""
-            return "${todayPrefix}There are no more holidays remaining in $monthName after today, Boss.$nextInfo"
+            return "There are no more holidays remaining in $monthName after today, Boss.$nextInfo"
         }
 
-        return "${todayPrefix}Here are the remaining holidays left in $monthName, Boss: ${items.joinToString("; ")}."
+        return "For the rest of $monthName, we have: ${items.joinToString("; ")}."
     }
 
     /**
