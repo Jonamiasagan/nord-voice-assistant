@@ -15,6 +15,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import java.util.Locale
 
 /**
@@ -68,10 +69,10 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
         }
 
         /**
-         * Confirms a message as spoken and triggers "Mark as read" on WhatsApp
-         * so it is never repeated even if seen as unread later.
+         * Confirms a message as spoken by DEVIL so it is never repeated.
+         * Keeps the notification visible in the drawer for the user.
          */
-        fun markMessageAsSpokenAndRead(sender: String, message: String, sbnKey: String? = null) {
+        fun markMessageAsSpoken(sender: String, message: String) {
             val key = messageKey(sender, message)
             synchronized(spokenMessageKeys) {
                 spokenMessageKeys.add(key)
@@ -80,8 +81,15 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
                     spokenMessageKeys.remove(first)
                 }
             }
-            Log.i(TAG, "Message confirmed as spoken & read: [$sender] $message")
+            Log.i(TAG, "Message confirmed as spoken: [$sender] $message")
+        }
 
+        /**
+         * Confirms a message as spoken and triggers "Mark as read" on WhatsApp
+         * when explicitly requested by voice commands.
+         */
+        fun markMessageAsSpokenAndRead(sender: String, message: String, sbnKey: String? = null) {
+            markMessageAsSpoken(sender, message)
             // Fire WhatsApp "Mark as read" action
             instance?.triggerMarkAsRead(sender, message, sbnKey)
         }
@@ -98,16 +106,37 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
                     val pkg = sbn.packageName ?: return@forEach
                     if (pkg == "com.whatsapp" || pkg == "com.whatsapp.w4b") {
                         val extras = sbn.notification.extras ?: return@forEach
-                        val sender = extras.getString(Notification.EXTRA_TITLE) ?: return@forEach
+                        val sender = (extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+                            ?: extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()
+                            ?: "").trim()
+                        if (sender.isEmpty() || sender.equals("WhatsApp", ignoreCase = true)) return@forEach
+
                         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
                         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
                         val content = (bigText ?: text).trim()
                         val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString() ?: ""
                         val isGroupConv = extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false)
                         val convTitle = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
+                        val channelId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) sbn.notification.channelId else null
+                        val shortcutId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) sbn.notification.shortcutId else null
+
+                        // 🛑 Skip backup notifications
+                        if (MessageFilter.isBackupNotification(sender, content, channelId)) {
+                            return@forEach
+                        }
 
                         // 🛑 Ignore group messages (group messages are never spoken out)
-                        if (MessageFilter.isGroupMessage(sender, content, subText, isGroupConv, convTitle)) {
+                        if (MessageFilter.isGroupMessage(
+                            title = sender,
+                            text = content,
+                            subText = subText,
+                            isGroupConversation = isGroupConv,
+                            conversationTitle = convTitle,
+                            channelId = channelId,
+                            shortcutId = shortcutId,
+                            tag = sbn.tag,
+                            key = sbn.key
+                        )) {
                             return@forEach
                         }
 
@@ -267,9 +296,27 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
             return
         }
 
+        val channelId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) notification.channelId else null
+        val shortcutId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) notification.shortcutId else null
+        val sbnTag = sbn.tag
+        val sbnKey = sbn.key
+
         val isGroupConv = extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false)
         val convTitle = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
-        val isGroup = MessageFilter.isGroupMessage(titleStr, textStr, subTextStr, isGroupConv, convTitle)
+        val messagingStyle = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification)
+        val isStyleGroup = messagingStyle?.isGroupConversation == true || !messagingStyle?.conversationTitle.isNullOrBlank()
+
+        val isGroup = isStyleGroup || MessageFilter.isGroupMessage(
+            title = titleStr,
+            text = textStr,
+            subText = subTextStr,
+            isGroupConversation = isGroupConv || isStyleGroup,
+            conversationTitle = convTitle ?: messagingStyle?.conversationTitle?.toString(),
+            channelId = channelId,
+            shortcutId = shortcutId,
+            tag = sbnTag,
+            key = sbnKey
+        )
 
         // Incoming Call Detection:
         // Must have an explicit incoming indicator (Answer button, incoming text, or CALL_TYPE_INCOMING)
@@ -283,8 +330,8 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
                 titleStr.contains("incoming", ignoreCase = true)
 
         val isIncomingCall = !isMissed && !isOngoing && !isGroup && !hasReplyAction && (
-                (isPhoneApp && (isIncomingCallType || hasAnswerAction || hasIncomingText)) ||
-                (isWhatsApp && (isIncomingCallType || hasIncomingText || (hasAnswerAction && !hasReplyAction)))
+                (isPhoneApp && (isIncomingCallType || hasAnswerAction || hasIncomingText || category == Notification.CATEGORY_CALL)) ||
+                (isWhatsApp && (isIncomingCallType || hasIncomingText || channelId?.contains("voip", ignoreCase = true) == true || category == Notification.CATEGORY_CALL || (hasAnswerAction && !hasReplyAction)))
         )
 
         if (isIncomingCall) {
@@ -308,19 +355,53 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
         // ═════════════════════════════════════════════════════════════════
         if (pkg != "com.whatsapp" && pkg != "com.whatsapp.w4b") return
 
-        // 🛑 USER RULE: FOR GROUP MESSAGES DO NOT SPEAK OUT!
-        if (isGroup) {
-            Log.d(TAG, "Muting WhatsApp group notification: $titleStr (group messages are silent)")
+        // 🛑 USER RULE: WHATSAPP BACKUP PROCESS NOTIFICATIONS MUST BE COMPLETELY SILENCED
+        val isBackup = MessageFilter.isBackupNotification(titleStr, textStr, channelId) ||
+                MessageFilter.isBackupNotification(titleStr, subTextStr, channelId) ||
+                (channelId?.contains("backup", ignoreCase = true) == true) ||
+                (notification.flags and Notification.FLAG_ONGOING_EVENT != 0 &&
+                        (titleStr.contains("backup", ignoreCase = true) || textStr.contains("backup", ignoreCase = true) || channelId?.contains("backup", ignoreCase = true) == true))
+
+        if (isBackup) {
+            Log.d(TAG, "Muting WhatsApp backup/sync notification: title='$titleStr', text='$textStr', channel='$channelId'")
             return
         }
 
-        val sender = extras.getString(Notification.EXTRA_TITLE) ?: return
-        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
-        val messageContent = (bigText ?: textStr).trim()
+        // 🛑 USER RULE: FOR GROUP MESSAGES KEEP COMPLETELY SILENT!
+        if (isGroup) {
+            Log.d(TAG, "Muting WhatsApp group notification: $titleStr (channel: $channelId, tag: $sbnTag, group messages are silent)")
+            return
+        }
+
+        // 🛑 SAFE SENDER EXTRACTION (never use getString which drops SpannableString/CharSequence contact names!)
+        var sender = (extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+            ?: extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()
+            ?: "").trim()
+
+        if (sender.isEmpty() || sender.equals("WhatsApp", ignoreCase = true) || sender.equals("WhatsApp Business", ignoreCase = true)) {
+            val styleSender = messagingStyle?.messages?.lastOrNull()?.person?.name?.toString()?.trim()
+            if (!styleSender.isNullOrBlank()) {
+                sender = styleSender
+            }
+        }
+
+        if (sender.isEmpty() || sender.equals("WhatsApp", ignoreCase = true) || sender.equals("WhatsApp Business", ignoreCase = true)) {
+            Log.d(TAG, "Skipping notification with no identifiable personal sender: title='$titleStr'")
+            return
+        }
+
+        // 🛑 SAFE MESSAGE CONTENT EXTRACTION
+        var messageContent = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+            ?: extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+            ?: "").trim()
+
+        if (messageContent.isEmpty()) {
+            messageContent = messagingStyle?.messages?.lastOrNull()?.text?.toString()?.trim() ?: ""
+        }
 
         if (messageContent.isEmpty()) return
 
-        if (MessageFilter.isCommercialOrSpam(sender, messageContent)) {
+        if (MessageFilter.isCommercialOrSpam(sender, messageContent) || MessageFilter.isBackupNotification(sender, messageContent, channelId)) {
             Log.i(TAG, "Skipping commercial/spam/system WhatsApp message from: $sender")
             return
         }
@@ -378,21 +459,62 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
      * Politely announces a 1-on-1 personal WhatsApp message.
      * Group messages are NEVER passed to this method.
      */
+    private fun isAmma(sender: String): Boolean {
+        val clean = sender.lowercase(Locale.getDefault()).trim()
+        return clean.contains("amma") || clean.contains("mom") || clean.contains("mother") || clean.contains("mummy")
+    }
+
+    private fun isPriorityTwo(sender: String): Boolean {
+        val clean = sender.lowercase(Locale.getDefault())
+        val digits = sender.replace(Regex("[^0-9]"), "")
+        return digits.contains("82483739") || clean.contains("akka") || clean.contains("sister")
+    }
+
     private fun announcePersonalWhatsAppMessage(sender: String, message: String, sbnKey: String? = null) {
         if (!isTtsReady || callTts == null) {
             initTts()
+            mainHandler.postDelayed({ announcePersonalWhatsAppMessage(sender, message, sbnKey) }, 250)
             return
         }
 
-        // Mark as spoken and read right away so it is NEVER repeated
-        markMessageAsSpokenAndRead(sender, message, sbnKey)
+        // Mark as spoken so it is NEVER repeated out loud, but leave the notification in the drawer
+        markMessageAsSpoken(sender, message)
 
-        val cleanSender = resolveContactName(sender) ?: sender
+        val isFirstPriority = isAmma(sender)
+        val isSecondPriority = isPriorityTwo(sender)
+
+        val cleanSender = when {
+            isFirstPriority -> "Amma"
+            isSecondPriority -> "Akka"
+            else -> resolveContactName(sender) ?: sender
+        }
         val preview = if (message.length > 70) message.substring(0, 70) + "..." else message
-        val speech = "Boss, WhatsApp message from $cleanSender: $preview"
+
+        val speech = when {
+            isFirstPriority -> {
+                "Boss, urgent priority WhatsApp message from Amma: $preview"
+            }
+            isSecondPriority -> {
+                "Boss, highest priority WhatsApp message from Akka: $preview"
+            }
+            else -> {
+                "Boss, WhatsApp message from $cleanSender: $preview"
+            }
+        }
         Log.i(TAG, "📢 DEVIL SPEAK (Personal WhatsApp): $speech")
 
         ensureAudibleVolume()
+        // Boost volume for top priorities (Amma #1, 9182483739 #2)
+        if (isFirstPriority || isSecondPriority) {
+            try {
+                val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                am?.let {
+                    val max = it.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                    it.setStreamVolume(AudioManager.STREAM_MUSIC, (max * 0.90f).toInt().coerceAtLeast(1), 0)
+                }
+            } catch (_: Exception) {}
+        }
+
         val params = Bundle().apply {
             putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
@@ -414,7 +536,7 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
                         return
                     }
                     val extras = sbn.notification?.extras ?: continue
-                    val notifSender = extras.getString(Notification.EXTRA_TITLE) ?: ""
+                    val notifSender = (extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: "").trim()
                     val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
                     val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
                     val notifContent = (bigText.ifBlank { text }).trim()
@@ -444,9 +566,6 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
                     return
                 }
             }
-            // Fallback: dismiss notification from drawer
-            cancelNotification(sbn.key)
-            Log.i(TAG, "Dismissed notification from drawer (${sbn.key})")
         } catch (e: Exception) {
             Log.e(TAG, "Error executing mark as read on notification", e)
         }
@@ -476,19 +595,32 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
         callAnnounceCount = 0
         callAnnounceStartTime = System.currentTimeMillis()
 
-        // Check if rawCaller is a pure phone number (+91 98765 43210 or 9876543210)
-        val digitsOnly = rawCaller.replace(Regex("[^0-9]"), "")
-        val isNumber = digitsOnly.length >= 6 && rawCaller.matches(Regex("^[+0-9\\s()\\-]+$"))
+        // Clean raw caller prefix / suffix (e.g. "Incoming voice call from ", "(Voice call)")
+        val cleanedCaller = rawCaller
+            .replace(Regex("(?i)^(incoming\\s*(voice|audio|video)?\\s*call\\s*(from)?)\\s*"), "")
+            .replace(Regex("(?i)^(call\\s*from)\\s*"), "")
+            .replace(Regex("(?i)\\s*\\((incoming|voice call|audio call|video call|call|whatsapp)\\)$"), "")
+            .trim()
+            .ifBlank { rawCaller }
 
-        val spokenName = if (isNumber) {
-            val contactName = resolveContactName(rawCaller)
-            contactName ?: digitsOnly.toList().joinToString(" ")
-        } else {
-            rawCaller
+        // Check if caller is a phone number (+91 91824 83739 or 09182483739)
+        val digitsOnly = cleanedCaller.replace(Regex("[^0-9]"), "")
+        val isNumber = digitsOnly.length >= 6 && cleanedCaller.matches(Regex("^[+0-9\\s()\\-]+$"))
+
+        val spokenName = when {
+            digitsOnly.contains("82483739") || cleanedCaller.contains("akka", ignoreCase = true) -> "Akka"
+            isNumber -> {
+                val contactName = resolveContactName(cleanedCaller)
+                contactName ?: digitsOnly.toList().joinToString(" ")
+            }
+            else -> resolveContactName(cleanedCaller) ?: cleanedCaller
         }
 
         val isAmma = spokenName.matches(Regex("(?i).*(amma|mom|mother|mummy).*"))
-        val isVip = isAmma || isVipContact(spokenName)
+        val isPriorityTwo = spokenName.equals("Akka", ignoreCase = true) ||
+                digitsOnly.contains("82483739") ||
+                cleanedCaller.contains("akka", ignoreCase = true)
+        val isVip = isAmma || isPriorityTwo || isVipContact(spokenName)
 
         // Under Barn Door Protocol (Meeting Mode), silence non-emergency & non-VIP calls
         if (com.example.nordassistant.protocol.DevilProtocolManager.currentProtocol == com.example.nordassistant.protocol.DevilProtocol.BARN_DOOR && !isVip) {
@@ -496,23 +628,33 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
             return
         }
 
-        val initialPhrase = if (isAmma) {
-            "Boss, incoming call from $spokenName"
-        } else {
-            "Boss, incoming call from $spokenName. Would you like to answer the call, or should I send a WhatsApp message?"
+        val initialPhrase = when {
+            isAmma -> "Boss, incoming call from Amma"
+            isPriorityTwo -> "Boss, highest priority incoming call from Akka"
+            else -> "Boss, incoming call from $spokenName. Would you like to answer the call, or should I send a WhatsApp message?"
         }
 
-        val repeatPhrase = if (isAmma) {
-            "Incoming call from $spokenName"
-        } else {
-            "Incoming call from $spokenName. Should I answer, or send a WhatsApp message?"
+        val repeatPhrase = when {
+            isAmma -> "Incoming call from Amma"
+            isPriorityTwo -> "Highest priority call from Akka"
+            else -> "Incoming call from $spokenName. Should I answer, or send a WhatsApp message?"
         }
-        val repeatDelay = if (isAmma) 6000L else 7500L
+        val repeatDelay = if (isAmma || isPriorityTwo) 5500L else 7500L
 
-        Log.i(TAG, "⚡ DEVIL ZERO-LATENCY CALL ANNOUNCE: $initialPhrase (vibrate-bypass)")
+        Log.i(TAG, "⚡ DEVIL ZERO-LATENCY CALL ANNOUNCE: $initialPhrase (vibrate-bypass, priority: ${if (isAmma) "Amma #1" else if (isPriorityTwo) "Akka #2" else "Normal"})")
 
-        // Ensure volume is loud enough on STREAM_MUSIC so DEVIL is heard in vibrate mode
-        ensureAudibleVolume()
+        // Boost volume for top priorities (Amma #1, Akka #2) to 90%, or ensure 80% for others
+        if (isAmma || isPriorityTwo) {
+            try {
+                val amInstance = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                amInstance?.let {
+                    val max = it.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                    it.setStreamVolume(AudioManager.STREAM_MUSIC, (max * 0.90f).toInt().coerceAtLeast(1), 0)
+                }
+            } catch (_: Exception) {}
+        } else {
+            ensureAudibleVolume()
+        }
 
         // 1. Speak immediately (0ms delay)
         speakCallPhrase(initialPhrase)
@@ -532,7 +674,17 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
                 }
 
                 callAnnounceCount++
-                ensureAudibleVolume()
+                if (isAmma || isPriorityTwo) {
+                    try {
+                        val amInstance = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                        amInstance?.let {
+                            val max = it.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                            it.setStreamVolume(AudioManager.STREAM_MUSIC, (max * 0.90f).toInt().coerceAtLeast(1), 0)
+                        }
+                    } catch (_: Exception) {}
+                } else {
+                    ensureAudibleVolume()
+                }
                 speakCallPhrase(repeatPhrase)
                 mainHandler.postDelayed(this, repeatDelay)
             }
@@ -576,11 +728,17 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
 
     private fun isVipContact(name: String): Boolean {
         val clean = name.lowercase(Locale.getDefault()).trim()
-        val vipList = listOf("amma", "mom", "mother", "mummy", "uj", "baddu", "bethol", "uma", "barath", "bharath")
+        val digits = name.replace(Regex("[^0-9]"), "")
+        if (digits.contains("82483739") || clean.contains("akka") || clean.contains("sister")) return true
+        val vipList = listOf("amma", "mom", "mother", "mummy", "uj", "baddu", "bethol", "uma", "barath", "bharath", "akka")
         return vipList.any { clean.contains(it) || it.contains(clean) }
     }
 
     private fun resolveContactName(phoneNumber: String): String? {
+        val digits = phoneNumber.replace(Regex("[^0-9]"), "")
+        if (digits.contains("82483739") || phoneNumber.contains("akka", ignoreCase = true)) {
+            return "Akka"
+        }
         var cursor: Cursor? = null
         return try {
             val uri = Uri.withAppendedPath(

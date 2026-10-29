@@ -52,34 +52,6 @@ object CorporateCalendarEngine {
         }
     }
 
-    // Default 2026 Indian & Global Corporate Tech Holidays (Standard Darwinbox Calendar)
-    private val standardHolidays = listOf(
-        Holiday("New Year's Day", 1, 1, 2026),
-        Holiday("Makar Sankranti / Pongal", 1, 14, 2026),
-        Holiday("Republic Day", 1, 26, 2026, description = "National Holiday - Long Weekend"),
-        Holiday("Maha Shivaratri", 2, 17, 2026),
-        Holiday("Holi", 3, 4, 2026),
-        Holiday("Ugadi / Gudi Padwa", 3, 20, 2026, description = "Long Weekend"),
-        Holiday("Id-ul-Fitr (Ramzan)", 3, 21, 2026),
-        Holiday("Good Friday", 4, 3, 2026, description = "Long Weekend"),
-        Holiday("Ambedkar Jayanti", 4, 14, 2026),
-        Holiday("May Day / Labor Day", 5, 1, 2026, description = "Long Weekend"),
-        Holiday("Bakrid / Eid al-Adha", 5, 27, 2026),
-        Holiday("Independence Day", 8, 15, 2026, description = "National Holiday"),
-        Holiday("Raksha Bandhan", 8, 27, 2026),
-        Holiday("Krishna Janmashtami", 9, 4, 2026, description = "Long Weekend"),
-        Holiday("Ganesh Chaturthi", 9, 15, 2026),
-        Holiday("Gandhi Jayanti", 10, 2, 2026, description = "National Holiday - Long Weekend"),
-        Holiday("Maha Navami", 10, 19, 2026),
-        Holiday("Dussehra / Vijaya Dashami", 10, 20, 2026),
-        Holiday("Company Holiday", 10, 21, 2026),
-        Holiday("Company Holiday", 10, 26, 2026),
-        Holiday("Diwali / Deepavali", 11, 8, 2026, description = "Festival of Lights"),
-        Holiday("Govardhan Puja / Balipratipada", 11, 9, 2026, description = "Long Weekend"),
-        Holiday("Guru Nanak Jayanti", 11, 24, 2026),
-        Holiday("Christmas", 12, 25, 2026, description = "Long Weekend")
-    )
-
     private var appContext: Context? = null
 
     fun init(context: Context) {
@@ -90,9 +62,14 @@ object CorporateCalendarEngine {
         return context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
+    /**
+     * Returns ONLY holidays from Darwinbox.
+     * Zero hardcoded festival/national dates — only genuine Darwinbox entries.
+     */
     fun getAllHolidays(context: Context? = null): List<Holiday> {
         val ctx = context ?: appContext
-        val combined = standardHolidays.toMutableList()
+        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+        val combined = mutableListOf<Holiday>()
         if (ctx != null) {
             try {
                 val prefs = getPrefs(ctx)
@@ -103,7 +80,7 @@ object CorporateCalendarEngine {
                         val name = parts[0]
                         val dateParts = parts[1].split("-")
                         if (dateParts.size == 3) {
-                            val year = dateParts[0].toIntOrNull() ?: 2026
+                            val year = dateParts[0].toIntOrNull() ?: currentYear
                             val month = dateParts[1].toIntOrNull() ?: 1
                             val day = dateParts[2].toIntOrNull() ?: 1
                             combined.removeAll { it.month == month && it.day == day && it.year == year }
@@ -112,7 +89,7 @@ object CorporateCalendarEngine {
                             val month = dateParts[0].toIntOrNull() ?: 1
                             val day = dateParts[1].toIntOrNull() ?: 1
                             combined.removeAll { it.month == month && it.day == day }
-                            combined.add(Holiday(name, month, day, 2026, description = "Darwinbox Corporate Holiday"))
+                            combined.add(Holiday(name, month, day, currentYear, description = "Darwinbox Corporate Holiday"))
                         }
                     }
                 }
@@ -460,7 +437,7 @@ object CorporateCalendarEngine {
         }
 
         if (next == null) {
-            return "No more official corporate holidays remaining this year, Boss. The next holiday will be New Year's Day on January 1st."
+            return "No upcoming holidays found in your Darwinbox calendar for this year, Boss."
         }
 
         val nextCal = next.toCalendar()
@@ -472,7 +449,7 @@ object CorporateCalendarEngine {
             else -> "in $diffDays days on ${next.formattedDate()}"
         }
 
-        return "The next holiday is ${next.name}, $countdownStr, Boss."
+        return "The next Darwinbox holiday is ${next.name}, $countdownStr, Boss."
     }
 
     /**
@@ -510,10 +487,10 @@ object CorporateCalendarEngine {
             if (month == currentMonth) {
                 val allHolidays = getAllHolidays()
                 val next = allHolidays.firstOrNull { it.toCalendar().timeInMillis > cal.timeInMillis }
-                val nextInfo = if (next != null) " The next upcoming holiday is ${next.name} on ${next.shortDate()}." else ""
-                return "There are no more holidays remaining in $targetMonthName after today, Boss.$nextInfo"
+                val nextInfo = if (next != null) " The next upcoming holiday in Darwinbox is ${next.name} on ${next.shortDate()}." else ""
+                return "There are no more holidays remaining in $targetMonthName in your Darwinbox calendar, Boss.$nextInfo"
             } else {
-                return "There are no official public or corporate holidays listed for $targetMonthName, Boss. Only regular 2nd and 4th Saturday weekend offs apply."
+                return "There are no corporate holidays listed in Darwinbox for $targetMonthName, Boss. Only regular 2nd and 4th Saturday weekend offs apply."
             }
         }
 
@@ -523,25 +500,40 @@ object CorporateCalendarEngine {
 
     /**
      * Extracts target month (1..12) from natural spoken query.
-     * Supports both full names ("october", "november") and 3-4 letter abbreviations ("oct", "nov").
+     * Supports full names, abbreviations, and common phonetic STT misrecognitions (e.g. "novermber", "novamber").
      * Defaults to current month if not specified.
      */
     fun extractMonthFromQuery(query: String): Int {
         val lower = query.lowercase().trim()
-        val monthNames = listOf(
-            "january" to 1, "february" to 2, "march" to 3, "april" to 4,
-            "may" to 5, "june" to 6, "july" to 7, "august" to 8,
-            "september" to 9, "october" to 10, "november" to 11, "december" to 12,
-            "jan" to 1, "feb" to 2, "mar" to 3, "apr" to 4,
-            "jun" to 6, "jul" to 7, "aug" to 8, "sep" to 9, "sept" to 9,
-            "oct" to 10, "nov" to 11, "dec" to 12
+        val patterns = listOf(
+            Regex("(?i)\\b(novermber|november|novamber|nov\\s*ember|novembre|novmbr|nov)\\b") to 11,
+            Regex("(?i)\\b(october|octomber|octover|oct\\s*ober|oct)\\b") to 10,
+            Regex("(?i)\\b(december|decomber|dec\\s*ember|dec)\\b") to 12,
+            Regex("(?i)\\b(january|januvary|jan\\s*uary|jan)\\b") to 1,
+            Regex("(?i)\\b(february|feburary|febuary|feb\\s*ruary|feb)\\b") to 2,
+            Regex("(?i)\\b(march|mar)\\b") to 3,
+            Regex("(?i)\\b(april|apr)\\b") to 4,
+            Regex("(?i)\\b(may)\\b") to 5,
+            Regex("(?i)\\b(june|jun)\\b") to 6,
+            Regex("(?i)\\b(july|jul)\\b") to 7,
+            Regex("(?i)\\b(august|aug)\\b") to 8,
+            Regex("(?i)\\b(september|sept|sep)\\b") to 9
         )
-        for ((name, m) in monthNames) {
-            if (lower.contains(Regex("(?i)\\b$name\\b"))) {
+        for ((regex, m) in patterns) {
+            if (regex.containsMatchIn(lower)) {
                 return m
             }
         }
         return Calendar.getInstance().get(Calendar.MONTH) + 1
+    }
+
+    /**
+     * Checks if the user explicitly named a month in their inquiry.
+     */
+    fun hasExplicitMonthInQuery(query: String): Boolean {
+        val lower = query.lowercase().trim()
+        val pattern = Regex("(?i)\\b(january|february|march|april|may|june|july|august|september|october|november|december|novermber|novamber|octomber|decomber|feburary|febuary|januvary|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\b")
+        return pattern.containsMatchIn(lower)
     }
 
     /**
@@ -552,13 +544,17 @@ object CorporateCalendarEngine {
         val now = Calendar.getInstance()
         val currentDay = now.get(Calendar.DAY_OF_MONTH)
         val currentMonth = now.get(Calendar.MONTH) + 1
+        val currentYear = now.get(Calendar.YEAR)
 
         val monthHolidays = getAllHolidays().filter { it.month == month }
-        val testCal = Calendar.getInstance().apply { set(Calendar.MONTH, month - 1) }
+        val testCal = Calendar.getInstance().apply {
+            set(Calendar.YEAR, currentYear)
+            set(Calendar.MONTH, month - 1)
+        }
         val monthName = SimpleDateFormat("MMMM", Locale.getDefault()).format(testCal.time)
 
         if (monthHolidays.isEmpty()) {
-            return "There are no official public or corporate holidays listed for $monthName, Boss. Only regular 2nd and 4th Saturday weekend offs apply."
+            return "There are no official holidays listed in your Darwinbox calendar for $monthName, Boss. Only regular 2nd and 4th Saturday weekend offs apply."
         }
 
         val groupedHolidays = monthHolidays.groupBy { it.name }
@@ -699,9 +695,15 @@ object CorporateCalendarEngine {
     }
 
     /**
-     * Allows user to store custom company holidays from Darwinbox via voice.
+     * Allows user to store custom company holidays from Darwinbox via voice or automation.
      */
-    fun registerCustomHoliday(context: Context, holidayName: String, month: Int, day: Int, year: Int = 2026) {
+    fun registerCustomHoliday(
+        context: Context,
+        holidayName: String,
+        month: Int,
+        day: Int,
+        year: Int = Calendar.getInstance().get(Calendar.YEAR)
+    ) {
         val entry = "$holidayName|$year-$month-$day"
         val prefs = getPrefs(context)
         val existing = prefs.getStringSet("custom_holidays", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
@@ -715,6 +717,14 @@ object CorporateCalendarEngine {
         } catch (e: Exception) {
             Log.w(TAG, "Error registering holiday into vault", e)
         }
+    }
+
+    /**
+     * Clears all stored holidays so the list stays purely aligned with Darwinbox.
+     */
+    fun clearAllCustomHolidays(context: Context) {
+        val prefs = getPrefs(context)
+        prefs.edit().remove("custom_holidays").apply()
     }
 
     /**

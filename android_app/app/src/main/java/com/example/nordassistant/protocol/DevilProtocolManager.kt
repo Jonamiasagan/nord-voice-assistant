@@ -241,11 +241,18 @@ object DevilProtocolManager {
 
     /**
      * Checks if input requests activation of Sentry Mode (Hands-Free Wake-Word listening).
+     * Accommodates phonetic variations from Indian English / fast speech:
+     * "centri mde", "centri mode", "century mode", "sentri mode", "sentry mod", "saintry mode", "centre mode".
      */
     fun isSentryModeTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
         if (isExplanationQuery(lower)) return false
-        return lower.contains(Regex("(?i)\\b((activate|engage|turn\\s*on|start|enter|enable)\\s+sentry(\\s*mode)?|sentry\\s*mode\\s*(on|active|engage|start)|sentry\\s*mode)\\b"))
+        val sentryWord = "(?:sentry|centri|centry|century|sentri|saintry|saintri|centre|center|remote|remode|sentiment)"
+        val modeWord = "(?:mode|mde|mod)?"
+        val triggerVerbs = "(?:activate|activation|engage|turn\\s*on|start|enter|enable|switch\\s*to)"
+
+        return lower.contains(Regex("(?i)\\b($triggerVerbs\\s+$sentryWord(\\s+$modeWord)?|$sentryWord\\s+(?:mode|mde|mod)\\s*(on|active|engage|start)|$sentryWord\\s+(?:mode|mde|mod)|$sentryWord\\s+on)\\b")) ||
+               lower.matches(Regex("(?i)^($triggerVerbs\\s+)?$sentryWord(\\s+$modeWord)?$"))
     }
 
     /**
@@ -253,7 +260,11 @@ object DevilProtocolManager {
      */
     fun isSentryModeRevokeTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
-        return lower.contains(Regex("(?i)\\b((revoke|disengage|turn\\s*off|stop|disable|exit|cancel)\\s+sentry(\\s*mode)?|sentry\\s*mode\\s*(off|revoke|cancel|stop)|revoke\\s*sentry)\\b"))
+        val sentryWord = "(?:sentry|centri|centry|century|sentri|saintry|saintri|centre|center|remote|remode|sentiment)"
+        val modeWord = "(?:mode|mde|mod)?"
+        val revokeVerbs = "(?:revoke|disengage|turn\\s*off|stop|disable|exit|cancel)"
+
+        return lower.contains(Regex("(?i)\\b($revokeVerbs\\s+$sentryWord(\\s+$modeWord)?|$sentryWord\\s+(?:mode|mde|mod)\\s*(off|revoke|cancel|stop)|revoke\\s*$sentryWord)\\b"))
     }
 
     var isSentryModeActive: Boolean = false
@@ -294,6 +305,11 @@ object DevilProtocolManager {
      */
     fun isBossModeRevocation(input: String): Boolean {
         val lower = input.lowercase().trim()
-        return lower.contains(Regex("(?i)\\b(boss\\s*mode|devil\\s*mode|switch\\s+to\\s+devil|switch\\s+to\\s+boss|revoke(\\s*all|\\s*protocols?)?|back\\s*to\\s*boss\\s*mode|normal\\s*mode|reset\\s*protocols?|cancel\\s*protocols?)\\b"))
+        return lower.contains(Regex("(?i)\\b(boss\\s*mode|devil\\s*mode|activate\\s+boss(\\s*mode)?|switch\\s+to\\s+devil|switch\\s+to\\s+boss|revoke(\\s+all(\\s+(the\\s+)?(modes?|mmodes?|protocols?))?|\\s+protocols?|\\s+modes?)?|back\\s*to\\s*boss(\\s*mode)?|normal\\s*mode|reset\\s*protocols?|reset\\s*modes?|cancel\\s*protocols?|cancel\\s*modes?)\\b")) ||
+               lower.matches(Regex("(?i)^(activate\\s+)?boss(\\s*mode)?$")) ||
+               lower.contains("revoke all") ||
+               lower.contains("revoke the mode") ||
+               lower.contains("revoke mode") ||
+               lower.contains("boss mode")
     }
 }

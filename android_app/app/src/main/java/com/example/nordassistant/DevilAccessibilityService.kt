@@ -2,6 +2,9 @@ package com.example.nordassistant
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
+import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -85,7 +88,7 @@ class DevilAccessibilityService : AccessibilityService() {
     }
 
     fun scheduleDarwinboxAttempts() {
-        val delays = listOf(400L, 800L, 1400L, 2200L, 3200L, 4500L, 6000L, 8000L, 11000L)
+        val delays = listOf(300L, 700L, 1200L, 1800L, 2500L, 3400L, 4500L, 5800L, 7500L, 9500L, 12000L, 15000L, 18000L, 22000L)
         for (delay in delays) {
             handler.postDelayed({
                 if (pendingDarwinboxAction != DarwinboxAction.NONE) {
@@ -120,6 +123,51 @@ class DevilAccessibilityService : AccessibilityService() {
             tryDarwinboxAutomation()
         } else if (isDarwinbox) {
             observeManualDarwinboxAttendance(event)
+            scrapeDarwinboxHolidaysIfPresent()
+        }
+    }
+
+    private fun scrapeDarwinboxHolidaysIfPresent() {
+        try {
+            val root = rootInActiveWindow ?: return
+            val holidayNameNodes = root.findAccessibilityNodeInfosByViewId("com.darwinbox.darwinbox.leave:id/textViewHolidayName")
+            if (holidayNameNodes.isNullOrEmpty()) return
+
+            val monthNodes = root.findAccessibilityNodeInfosByViewId("com.darwinbox.darwinbox.leave:id/textViewMonth")
+
+            for (nameNode in holidayNameNodes) {
+                val holidayName = nameNode.text?.toString()?.trim() ?: continue
+                if (holidayName.isEmpty()) continue
+
+                val parent = nameNode.parent ?: continue
+                val dateNodes = parent.findAccessibilityNodeInfosByViewId("com.darwinbox.darwinbox.leave:id/textViewDate")
+                val dateStr = dateNodes.firstOrNull()?.text?.toString()?.trim() ?: continue
+                val day = dateStr.toIntOrNull() ?: continue
+
+                // Find nearest month node positioned above this holiday node
+                val nameBounds = Rect()
+                nameNode.getBoundsInScreen(nameBounds)
+
+                var bestMonth = java.util.Calendar.getInstance().get(java.util.Calendar.MONTH) + 1
+                var bestDist = Int.MAX_VALUE
+                for (mNode in monthNodes) {
+                    val mBounds = Rect()
+                    mNode.getBoundsInScreen(mBounds)
+                    if (mBounds.bottom <= nameBounds.top) {
+                        val dist = nameBounds.top - mBounds.bottom
+                        if (dist < bestDist) {
+                            bestDist = dist
+                            val mText = mNode.text?.toString() ?: ""
+                            bestMonth = com.example.nordassistant.data.CorporateCalendarEngine.extractMonthFromQuery(mText)
+                        }
+                    }
+                }
+
+                com.example.nordassistant.data.CorporateCalendarEngine.registerCustomHoliday(this, holidayName, bestMonth, day)
+                Log.i(TAG, "🎯 Auto-synced Darwinbox holiday from screen: $holidayName on Month $bestMonth Day $day")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error scraping Darwinbox holidays", e)
         }
     }
 
@@ -149,86 +197,188 @@ class DevilAccessibilityService : AccessibilityService() {
     private fun tryDarwinboxAutomation() {
         if (pendingDarwinboxAction == DarwinboxAction.NONE) return
 
-        // Auto-expire after 25 seconds
-        if (System.currentTimeMillis() - darwinboxTimestamp > 25000) {
+        // Auto-expire after 28 seconds
+        if (System.currentTimeMillis() - darwinboxTimestamp > 28000) {
+            Log.w(TAG, "Darwinbox automation timed out after 28 seconds")
             pendingDarwinboxAction = DarwinboxAction.NONE
             return
         }
 
-        val rootNode = rootInActiveWindow ?: return
+        val rootNodes = mutableListOf<AccessibilityNodeInfo>()
+        rootInActiveWindow?.let { rootNodes.add(it) }
+        try {
+            for (window in windows) {
+                window.root?.let { wRoot ->
+                    if (rootNodes.none { it == wRoot }) {
+                        rootNodes.add(wRoot)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error collecting windows", e)
+        }
+        if (rootNodes.isEmpty()) return
 
         try {
-            // ── Step 2: On CheckInRequestActivity -> Hit "Done" / "Submit" button ──
-            val submitButtons = rootNode.findAccessibilityNodeInfosByViewId("com.darwinbox.darwinbox.attendance:id/buttonSubmit")
-            if (!submitButtons.isNullOrEmpty()) {
-                for (btn in submitButtons) {
-                    if (btn.isClickable || btn.isEnabled) {
-                        Log.i(TAG, "Found Darwinbox Done / Submit button (buttonSubmit). Hitting Done now!")
-                        val clicked = btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        if (clicked) {
-                            pendingDarwinboxAction = DarwinboxAction.NONE
-                            Log.i(TAG, "DARWINBOX CHECK-IN / CHECK-OUT DONE HIT SUCCESSFULLY!")
-                            return
+            // ── Auto-grant any system location / permission dialogs blocking Darwinbox ──
+            val permissionViewIds = listOf(
+                "com.android.permissioncontroller:id/permission_allow_foreground_only_button",
+                "com.android.permissioncontroller:id/permission_allow_button",
+                "com.android.permissioncontroller:id/permission_allow_one_time_button"
+            )
+            for (rootNode in rootNodes) {
+                for (pId in permissionViewIds) {
+                    val pNodes = rootNode.findAccessibilityNodeInfosByViewId(pId)
+                    if (!pNodes.isNullOrEmpty()) {
+                        for (pNode in pNodes) {
+                            Log.i(TAG, "Auto-granting Darwinbox permission via $pId")
+                            clickNodeOrCoordinates(pNode)
                         }
                     }
                 }
             }
 
-            // Fallback for Done: bottomDone container
-            val bottomDoneNodes = rootNode.findAccessibilityNodeInfosByViewId("com.darwinbox.darwinbox.attendance:id/bottomDone")
-            if (!bottomDoneNodes.isNullOrEmpty()) {
-                for (bNode in bottomDoneNodes) {
-                    if (bNode.isClickable) {
-                        bNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            // ── Step 2: On CheckInRequestActivity / Dialog -> Hit "Done" / "Submit" / "Clock Out" confirmation ──
+            val submitViewIds = listOf(
+                "com.darwinbox.darwinbox:id/buttonClockInOut",
+                "com.darwinbox.darwinbox.attendance:id/buttonClockInOut",
+                "com.darwinbox.darwinbox.attendance:id/buttonSubmit",
+                "com.darwinbox.darwinbox:id/buttonSubmit",
+                "com.darwinbox.darwinbox.attendance:id/bottomDone",
+                "com.darwinbox.darwinbox:id/bottomDone",
+                "com.darwinbox.darwinbox.attendance:id/btn_submit",
+                "com.darwinbox.darwinbox:id/btn_submit",
+                "com.darwinbox.darwinbox.attendance:id/btnSubmit",
+                "com.darwinbox.darwinbox:id/btnSubmit",
+                "com.darwinbox.darwinbox.attendance:id/btnDone",
+                "com.darwinbox.darwinbox:id/btnDone",
+                "com.darwinbox.darwinbox:id/action_done",
+                "com.darwinbox.darwinbox.attendance:id/action_done",
+                "com.darwinbox.darwinbox:id/ivSubmit",
+                "com.darwinbox.darwinbox.attendance:id/ivSubmit",
+                "com.darwinbox.darwinbox:id/btnSubmitPulseActivity",
+                "com.darwinbox.darwinbox:id/btn_attending"
+            )
+
+            for (rootNode in rootNodes) {
+                for (viewId in submitViewIds) {
+                    val nodes = rootNode.findAccessibilityNodeInfosByViewId(viewId)
+                    if (!nodes.isNullOrEmpty()) {
+                        for (node in nodes) {
+                            Log.i(TAG, "Found Darwinbox Submit/Done button by view ID ($viewId). Clicking now!")
+                            if (clickNodeOrCoordinates(node)) {
+                                pendingDarwinboxAction = DarwinboxAction.NONE
+                                Log.i(TAG, "DARWINBOX CHECK-IN / CHECK-OUT DONE HIT SUCCESSFULLY via ID $viewId!")
+                                return
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fallback for Done / Submit by Text & ContentDescription on dialog/confirmation screen
+            val submitKeywords = listOf(
+                "submit", "done", "confirm", "proceed", "save", "mark attendance"
+            )
+            for (rootNode in rootNodes) {
+                val doneCandidateNodes = mutableListOf<AccessibilityNodeInfo>()
+                findNodesByTextOrDescription(rootNode, submitKeywords, doneCandidateNodes)
+                for (node in doneCandidateNodes) {
+                    Log.i(TAG, "Found Darwinbox Done / Submit candidate by text: '${node.text ?: node.contentDescription}'")
+                    if (clickNodeOrCoordinates(node)) {
                         pendingDarwinboxAction = DarwinboxAction.NONE
-                        Log.i(TAG, "Clicked bottomDone container!")
+                        Log.i(TAG, "DARWINBOX SUBMIT / DONE HIT SUCCESSFULLY via text/description!")
                         return
                     }
                 }
             }
 
-            // Fallback by Text: "Done" or "Submit" on Check-In screen
-            val doneTextNodes = mutableListOf<AccessibilityNodeInfo>()
-            findNodesByTextCaseInsensitive(rootNode, "done", doneTextNodes)
-            findNodesByTextCaseInsensitive(rootNode, "submit", doneTextNodes)
-            for (node in doneTextNodes) {
-                var clickable: AccessibilityNodeInfo? = node
-                while (clickable != null && !clickable.isClickable) {
-                    clickable = clickable.parent
-                }
-                if (clickable != null && clickable.isClickable) {
-                    Log.i(TAG, "Found Done button by text. Clicking now!")
-                    clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    pendingDarwinboxAction = DarwinboxAction.NONE
-                    return
-                }
+            // ── Step 1: On Dashboard -> Click "Check In" / "Check Out" shortcut ──
+            val shortcutViewIds = if (pendingDarwinboxAction == DarwinboxAction.CHECK_OUT) {
+                listOf(
+                    "com.darwinbox.darwinbox:id/checkOutShortcut",
+                    "com.darwinbox.darwinbox:id/buttonCheckOut",
+                    "com.darwinbox.darwinbox:id/textViewCheckOut",
+                    "com.darwinbox.darwinbox:id/checkInShortcut",
+                    "com.darwinbox.darwinbox:id/textViewCheckInTitle",
+                    "com.darwinbox.darwinbox:id/textViewCheckInDesc",
+                    "com.darwinbox.darwinbox:id/attendanceShortcut",
+                    "com.darwinbox.darwinbox:id/btn_checkout",
+                    "com.darwinbox.darwinbox:id/action_checkout",
+                    "com.darwinbox.darwinbox:id/iv_checkout",
+                    "com.darwinbox.darwinbox:id/tv_checkout",
+                    "com.darwinbox.darwinbox:id/textViewClockOutTime",
+                    "com.darwinbox.darwinbox:id/layoutInTimeOutTime",
+                    "com.darwinbox.darwinbox.attendance:id/checkOutShortcut",
+                    "com.darwinbox.darwinbox.attendance:id/checkInShortcut"
+                )
+            } else {
+                listOf(
+                    "com.darwinbox.darwinbox:id/checkInShortcut",
+                    "com.darwinbox.darwinbox:id/buttonCheckIn",
+                    "com.darwinbox.darwinbox:id/btn_check_in",
+                    "com.darwinbox.darwinbox:id/textViewCheckIn",
+                    "com.darwinbox.darwinbox:id/textViewCheckInTitle",
+                    "com.darwinbox.darwinbox:id/textViewCheckInDesc",
+                    "com.darwinbox.darwinbox:id/attendanceShortcut",
+                    "com.darwinbox.darwinbox:id/btn_checkin",
+                    "com.darwinbox.darwinbox:id/action_checkin",
+                    "com.darwinbox.darwinbox:id/iv_checkin",
+                    "com.darwinbox.darwinbox:id/tv_checkin",
+                    "com.darwinbox.darwinbox:id/textViewClockInTime",
+                    "com.darwinbox.darwinbox:id/layoutInTimeOutTime",
+                    "com.darwinbox.darwinbox.attendance:id/checkInShortcut"
+                )
             }
 
-            // ── Step 1: On Dashboard -> Click "Check In" / "Check Out" shortcut ──
-            val checkInShortcutNodes = rootNode.findAccessibilityNodeInfosByViewId("com.darwinbox.darwinbox:id/checkInShortcut")
-            if (!checkInShortcutNodes.isNullOrEmpty()) {
-                for (node in checkInShortcutNodes) {
-                    if (node.isClickable || node.isEnabled) {
-                        Log.i(TAG, "Found checkInShortcut on Dashboard. Clicking now!")
-                        node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        return // Wait for CheckInRequestActivity to open
+            for (rootNode in rootNodes) {
+                for (viewId in shortcutViewIds) {
+                    val nodes = rootNode.findAccessibilityNodeInfosByViewId(viewId)
+                    if (!nodes.isNullOrEmpty()) {
+                        for (node in nodes) {
+                            Log.i(TAG, "Found Darwinbox Dashboard Shortcut by ID ($viewId). Clicking now!")
+                            if (clickNodeOrCoordinates(node)) {
+                                Log.i(TAG, "Clicked Dashboard Shortcut ($viewId), awaiting submission screen...")
+                                return
+                            }
+                        }
                     }
                 }
             }
 
-            // Fallback for Dashboard by text: "Check In", "Click here to Check In", "Clockin"
-            val targetDashboardText = if (pendingDarwinboxAction == DarwinboxAction.CHECK_OUT) "Clockout" else "Check In"
-            val dashboardNodes = mutableListOf<AccessibilityNodeInfo>()
-            findNodesByTextCaseInsensitive(rootNode, targetDashboardText, dashboardNodes)
-            for (node in dashboardNodes) {
-                var clickable: AccessibilityNodeInfo? = node
-                while (clickable != null && !clickable.isClickable) {
-                    clickable = clickable.parent
-                }
-                if (clickable != null && clickable.isClickable) {
-                    Log.i(TAG, "Clicking $targetDashboardText shortcut by text search!")
-                    clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    return
+            // Fallback for Dashboard by text & content description
+            // IMPORTANT: Avoid broad keywords like "in"/"out" — they false-match "Verify with fingerprint" etc.
+            val dashboardKeywords = if (pendingDarwinboxAction == DarwinboxAction.CHECK_OUT) {
+                listOf(
+                    "check out", "checkout", "check-out", "clock out", "clockout", "clock-out",
+                    "punch out", "punchout", "tap to check out", "click here to check out",
+                    "check out now", "mark out", "swipe out"
+                )
+            } else {
+                listOf(
+                    "check in", "checkin", "check-in", "clock in", "clockin", "clock-in",
+                    "punch in", "punchin", "tap to check in", "click here to check in",
+                    "check in now", "mark in", "swipe in"
+                )
+            }
+
+            // Filter out nodes that contain "fingerprint", "biometric", "verify", or "face" to avoid false clicks
+            val excludePatterns = listOf("fingerprint", "biometric", "verify", "face id", "face recognition", "authenticat")
+
+            for (rootNode in rootNodes) {
+                val dashboardNodes = mutableListOf<AccessibilityNodeInfo>()
+                findNodesByTextOrDescription(rootNode, dashboardKeywords, dashboardNodes)
+                for (node in dashboardNodes) {
+                    val nodeLabel = (node.text ?: node.contentDescription ?: "").toString().lowercase()
+                    if (excludePatterns.any { nodeLabel.contains(it) }) {
+                        Log.w(TAG, "Skipping false-match node: '$nodeLabel' (contains excluded pattern)")
+                        continue
+                    }
+                    Log.i(TAG, "Found Darwinbox Dashboard button by text: '${node.text ?: node.contentDescription}'")
+                    if (clickNodeOrCoordinates(node)) {
+                        Log.i(TAG, "Clicked Dashboard shortcut by text search, awaiting submission screen...")
+                        return
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -236,18 +386,71 @@ class DevilAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun findNodesByTextCaseInsensitive(
+    private fun clickNodeOrCoordinates(node: AccessibilityNodeInfo): Boolean {
+        // Strategy A: Direct click on node
+        if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            Log.i(TAG, "Clicked node directly via performAction(ACTION_CLICK)")
+            return true
+        }
+
+        // Strategy B: Traverse up to clickable parent
+        var clickable: AccessibilityNodeInfo? = node.parent
+        while (clickable != null) {
+            if (clickable.isClickable && clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                Log.i(TAG, "Clicked parent node via performAction(ACTION_CLICK)")
+                return true
+            }
+            clickable = clickable.parent
+        }
+
+        // Strategy C: Physical click simulation via dispatchGesture at center of view bounds
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        if (!bounds.isEmpty && bounds.width() > 0 && bounds.height() > 0) {
+            val clickX = bounds.centerX().toFloat()
+            val clickY = bounds.centerY().toFloat()
+            Log.i(TAG, "Dispatching hardware touch gesture at ($clickX, $clickY) for bounds: $bounds")
+            val path = Path().apply {
+                moveTo(clickX, clickY)
+            }
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
+                .build()
+            val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    super.onCompleted(gestureDescription)
+                    Log.i(TAG, "Hardware touch gesture COMPLETED at ($clickX, $clickY)")
+                }
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    super.onCancelled(gestureDescription)
+                    Log.w(TAG, "Hardware touch gesture CANCELLED at ($clickX, $clickY)")
+                }
+            }, null)
+            Log.i(TAG, "dispatchGesture result: $dispatched")
+            return dispatched
+        }
+
+        return false
+    }
+
+    private fun findNodesByTextOrDescription(
         root: AccessibilityNodeInfo,
-        targetText: String,
+        targetKeywords: List<String>,
         results: MutableList<AccessibilityNodeInfo>
     ) {
-        val nodeText = root.text?.toString()
-        if (nodeText != null && nodeText.contains(targetText, ignoreCase = true)) {
-            results.add(root)
+        val nodeText = root.text?.toString()?.trim()
+        val nodeDesc = root.contentDescription?.toString()?.trim()
+
+        for (kw in targetKeywords) {
+            if ((nodeText != null && nodeText.contains(kw, ignoreCase = true)) ||
+                (nodeDesc != null && nodeDesc.contains(kw, ignoreCase = true))) {
+                results.add(root)
+                break
+            }
         }
         for (i in 0 until root.childCount) {
             val child = root.getChild(i) ?: continue
-            findNodesByTextCaseInsensitive(child, targetText, results)
+            findNodesByTextOrDescription(child, targetKeywords, results)
         }
     }
 

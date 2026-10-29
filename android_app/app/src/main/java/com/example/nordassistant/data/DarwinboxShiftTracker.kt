@@ -11,6 +11,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import com.example.nordassistant.security.DevilSentryService
 
 /**
  * Manages Darwinbox 9-hour shift tracking, checkout reminders,
@@ -74,6 +75,13 @@ object DarwinboxShiftTracker {
 
         scheduleCheckoutAlarm(context, alertTime)
 
+        // Arm backup timer inside the foreground service (OxygenOS-proof)
+        try {
+            DevilSentryService.armBackupShiftTimerIfActive()
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not arm backup shift timer", e)
+        }
+
         val checkInStr = formatTime(timestamp)
         val checkoutStr = formatTime(targetCheckout)
         val alertStr = formatTime(alertTime)
@@ -105,6 +113,11 @@ object DarwinboxShiftTracker {
             .apply()
 
         cancelCheckoutAlarm(context)
+
+        // Cancel backup timer in the foreground service
+        try {
+            DevilSentryService.cancelBackupShiftTimerIfActive()
+        } catch (_: Exception) {}
 
         val checkOutStr = formatTime(timestamp)
         try {

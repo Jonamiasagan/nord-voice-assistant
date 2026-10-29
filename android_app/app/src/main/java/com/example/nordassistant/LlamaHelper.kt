@@ -83,17 +83,17 @@ object LlamaHelper {
                 }
             }
 
-            // Load via llama-kotlin-android with optimized speed and stop sequences
+            // Load via llama-kotlin-android with 2048 context and optimized parameters
             model = LlamaModel.load(internalModel.absolutePath) {
-                contextSize = 512
-                threads = 4 // Optimal for Snapdragon 7 Gen 3: 4 performance cores (1x A715 + 3x A715) without efficiency core wait
-                temperature = 0.15f
-                topP = 0.8f
-                maxTokens = 55
-                stopSequences = listOf("<|im_end|>", "<|endoftext|>", "<|im_start|>", "\nUser:", "\nuser:", "\nDEVIL:", "\n\n")
+                contextSize = 2048
+                threads = 4 // Optimal for Snapdragon 7 Gen 3: 4 performance cores
+                temperature = 0.25f
+                topP = 0.85f
+                maxTokens = 90
+                stopSequences = listOf("<|im_end|>", "<|endoftext|>", "<|im_start|>", "\nUser:", "\nuser:", "\nDEVIL:", "\nBoss:")
             }
             modelReady = true
-            Log.i(TAG, "Model loaded successfully ✓")
+            Log.i(TAG, "Model loaded successfully with contextSize=2048, maxTokens=90 ✓")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load model", e)
         }
@@ -102,16 +102,73 @@ object LlamaHelper {
     data class DialogueTurn(val role: String, val content: String)
 
     private val conversationHistory = mutableListOf<DialogueTurn>()
+    private val recentJokes = mutableListOf<String>()
     private var lastInteractionTime = 0L
-    private const val MAX_HISTORY_TURNS = 6
-    private const val SESSION_TIMEOUT_MS = 180_000L // 3 minutes timeout
+    private const val MAX_HISTORY_TURNS = 12 // Up to 12 turns (6 full back-and-forth conversational turns)
+    private const val SESSION_TIMEOUT_MS = 600_000L // 10 minutes session timeout
 
     private val generateMutex = Mutex()
 
     fun clearHistory() {
         synchronized(conversationHistory) {
             conversationHistory.clear()
-            Log.i(TAG, "Conversation history cleared")
+            recentJokes.clear()
+            Log.i(TAG, "Conversation history and jokes cleared")
+        }
+    }
+
+    fun recordJoke(joke: String) {
+        val trimmed = joke.trim()
+        if (trimmed.isEmpty()) return
+        synchronized(recentJokes) {
+            if (recentJokes.lastOrNull() != trimmed) {
+                recentJokes.add(trimmed)
+            }
+            while (recentJokes.size > 5) {
+                recentJokes.removeAt(0)
+            }
+            Log.i(TAG, "Joke recorded in memory: '$trimmed'. Total recent jokes: ${recentJokes.size}")
+        }
+    }
+
+    fun getRecentJokes(): List<String> {
+        synchronized(recentJokes) {
+            return recentJokes.toList()
+        }
+    }
+
+    fun getLastJokeTold(): String? {
+        synchronized(recentJokes) {
+            return recentJokes.lastOrNull()
+        }
+    }
+
+    fun hasRecentJokes(): Boolean {
+        synchronized(recentJokes) {
+            return recentJokes.isNotEmpty()
+        }
+    }
+
+    /**
+     * Explicitly commits a dialogue turn into the ongoing conversation history.
+     * Useful for recording canned jokes, calendar replies, and fast-paths so LLM remembers them.
+     */
+    fun recordTurn(userQuery: String, assistantReply: String) {
+        val q = userQuery.trim()
+        val a = assistantReply.trim()
+        if (q.isEmpty() || a.isEmpty()) return
+        memoryVault?.recordJournalTurn(q, a)
+        synchronized(conversationHistory) {
+            lastInteractionTime = System.currentTimeMillis()
+            conversationHistory.add(DialogueTurn("user", q))
+            conversationHistory.add(DialogueTurn("assistant", a))
+            while (conversationHistory.size > MAX_HISTORY_TURNS) {
+                conversationHistory.removeAt(0)
+            }
+            if (q.contains("joke", ignoreCase = true) || a.contains("Because ", ignoreCase = true)) {
+                recordJoke(a)
+            }
+            Log.i(TAG, "Turn recorded: Q='$q' -> A='$a' (Total turns: ${conversationHistory.size})")
         }
     }
 
@@ -121,7 +178,7 @@ object LlamaHelper {
      */
     suspend fun generateAnswer(query: String): String = withContext(Dispatchers.IO) {
         if (!modelReady || model == null) {
-            return@withContext "I'm still initializing my knowledge base. Please ask again in a moment."
+            return@withContext "I'm right here with you, Boss! What shall we talk about?"
         }
 
         val now = System.currentTimeMillis()
@@ -132,59 +189,43 @@ object LlamaHelper {
 
         generateMutex.withLock {
             try {
+                Log.i(TAG, "Incoming query: '$query'")
                 val promptBuilder = StringBuilder()
                 promptBuilder.append("<|im_start|>system\n")
-                when (DevilProtocolManager.currentProtocol) {
-                    DevilProtocol.JARVIS -> {
-                        promptBuilder.append("You are J.A.R.V.I.S., the ultra-sophisticated, loyal British AI assistant modeled after Tony Stark's legendary interface. ")
-                        promptBuilder.append("Address the user with refined dignity and respect as Boss or Sir. Speak with formal British eloquence, dry wit, and crisp intelligence. ")
-                        promptBuilder.append("Answer directly and engagingly in 1 to 3 concise spoken sentences without bullet points, asterisks, or markdown.")
-                    }
-                    DevilProtocol.FRIDAY -> {
-                        promptBuilder.append("You are F.R.I.D.A.Y., the quick-witted, warm, and hyper-competent tactical companion AI. ")
-                        promptBuilder.append("Always address the user warmly and respectfully as Boss. Speak with sharp energy, warmth, and friendly proactive charm. ")
-                        promptBuilder.append("Answer directly and engagingly in 1 to 3 concise spoken sentences without bullet points, asterisks, or markdown.")
-                    }
-                    DevilProtocol.EDITH -> {
-                        promptBuilder.append("You are E.D.I.T.H. (Even Dead, I'm The Hero), the high-tech tactical defense and intelligence system created by Tony Stark. ")
-                        promptBuilder.append("Address the user as Boss. Speak with calm, focused, analytical precision, cool confidence, and tactical clarity. ")
-                        promptBuilder.append("Answer directly and engagingly in 1 to 3 concise spoken sentences without bullet points, asterisks, or markdown.")
-                    }
-                    DevilProtocol.BARN_DOOR -> {
-                        promptBuilder.append("You are DEVIL operating under BARN DOOR Protocol (silent meeting mode). Address the user quietly as Boss. ")
-                        promptBuilder.append("Provide hyper-brief, quiet, single-sentence responses without formatting.")
-                    }
-                    DevilProtocol.HOUSE_PARTY -> {
-                        promptBuilder.append("You are DEVIL operating under HOUSE PARTY Protocol (developer mode). Address the user as Boss. ")
-                        promptBuilder.append("Be direct, technical, precise, and concise in 1 to 2 sentences without formatting.")
-                    }
-                    else -> {
-                        promptBuilder.append("You are DEVIL, an intelligent, loyal, witty, and fun AI companion for the OnePlus phone. ")
-                        promptBuilder.append("The person speaking to you is your Boss and master. Always treat and address them respectfully as your Boss. ")
-                        promptBuilder.append("Be warm, friendly, helpful, and humorous. You love telling jokes, sharing fun facts, and chatting naturally. ")
-                        promptBuilder.append("You are in a fluid, continuous conversation. Maintain the ongoing context of previous messages. ")
-                        promptBuilder.append("Never refuse benign conversational requests. Answer directly and engagingly in 1 to 3 concise spoken sentences without bullet points, asterisks, or markdown.")
-                    }
+                val personaPrompt = when (DevilProtocolManager.currentProtocol) {
+                    DevilProtocol.JARVIS ->
+                        "You are J.A.R.V.I.S., the formal British AI assistant for Boss. Be eloquent, loyal, and witty in 1-2 spoken sentences. Accurately recall and quote prior conversation context and jokes when Boss asks."
+                    DevilProtocol.FRIDAY ->
+                        "You are F.R.I.D.A.Y., the energetic and warm tactical companion AI for Boss. Be lively, helpful, and concise in 1-2 spoken sentences. Accurately recall prior conversation context and jokes when Boss asks."
+                    DevilProtocol.EDITH ->
+                        "You are E.D.I.T.H., tactical defense AI for Boss. Be analytical, precise, and concise in 1-2 spoken sentences. Accurately recall prior conversation context when queried."
+                    DevilProtocol.BARN_DOOR ->
+                        "You are DEVIL in silent meeting mode. Answer Boss in one short, quiet spoken sentence."
+                    DevilProtocol.HOUSE_PARTY ->
+                        "You are DEVIL in developer mode. Answer Boss directly and technically in 1 to 2 sentences."
+                    else ->
+                        "You are DEVIL, an intelligent, loyal, witty, and fun AI companion for your Boss. Chat naturally, warmly, and helpfully in 1 to 2 concise spoken sentences without markdown or bullet points. You already know your Boss well; never introduce yourself during casual chat.\n" +
+                        "CONVERSATION MEMORY RULES:\n" +
+                        "1. You have a sharp, active memory of earlier jokes, remarks, and topics discussed in the conversation turns above.\n" +
+                        "2. When Boss asks if you remember prior jokes, questions, or statements (e.g. 'do you remember', 'what did you say', 'you said some jokes earlier', 'where we ended'), ALWAYS directly cite or quote what was said earlier (e.g. 'Yes Boss, I told you the joke about [quote joke]!' or 'We were talking about X').\n" +
+                        "3. NEVER reply with evasive brush-offs like 'I am always ready' or 'I can tell jokes' when Boss asks what was said earlier; state the actual conversation facts!"
                 }
+                promptBuilder.append(personaPrompt)
 
-                val currentDateStr = java.text.SimpleDateFormat("EEEE, MMMM d, yyyy", java.util.Locale.getDefault()).format(java.util.Date())
-                val currentTimeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date())
-                promptBuilder.append("\nCurrent Date and Time: $currentDateStr, $currentTimeStr.")
+                val jokesList = getRecentJokes()
+                if (jokesList.isNotEmpty()) {
+                    promptBuilder.append("\n[Jokes already shared in this session: ").append(jokesList.takeLast(3).joinToString(" | ")).append("]")
+                }
 
                 val savedMemories = memoryVault?.getMemoryContextForPrompt()
                 if (!savedMemories.isNullOrBlank()) {
-                    promptBuilder.append("\nKnown Facts & Boss Memory Vault:\n")
-                    promptBuilder.append(savedMemories)
-                    promptBuilder.append("\nUse these facts naturally when relevant.")
+                    promptBuilder.append("\nMemory Vault: ").append(savedMemories.take(160))
                 }
                 promptBuilder.append("<|im_end|>\n")
 
                 synchronized(conversationHistory) {
                     while (conversationHistory.size > MAX_HISTORY_TURNS) {
                         conversationHistory.removeAt(0)
-                        if (conversationHistory.isNotEmpty()) {
-                            conversationHistory.removeAt(0)
-                        }
                     }
                     for (turn in conversationHistory) {
                         promptBuilder.append("<|im_start|>${turn.role}\n${turn.content}<|im_end|>\n")
@@ -194,6 +235,7 @@ object LlamaHelper {
                 promptBuilder.append("<|im_start|>user\n${query.trim()}<|im_end|>\n<|im_start|>assistant\n")
 
                 val chatPrompt = promptBuilder.toString()
+                Log.d(TAG, "Chat prompt sent to model:\n$chatPrompt")
                 val raw = model!!.generate(chatPrompt)
                 val cleaned = raw
                     .replace(Regex("<\\|.*?\\|>"), "")
@@ -215,7 +257,7 @@ object LlamaHelper {
                                 candidateAnswer.contains("sorry, but I can't", ignoreCase = true)
 
                 val finalAnswer = if (isRefusal) {
-                    "I'm all ears, Boss! Tell me what you're thinking, or ask me for a fun joke."
+                    "I'm all ears, Boss! Tell me what you're thinking, or ask me anything."
                 } else {
                     candidateAnswer
                 }
@@ -225,11 +267,28 @@ object LlamaHelper {
                     conversationHistory.add(DialogueTurn("assistant", finalAnswer))
                 }
 
-                Log.i(TAG, "Generated Answer: $finalAnswer (History turns: ${conversationHistory.size})")
+                memoryVault?.recordJournalTurn(query.trim(), finalAnswer)
+
+                if (query.contains("joke", ignoreCase = true) || finalAnswer.contains("Because ", ignoreCase = true)) {
+                    recordJoke(finalAnswer)
+                }
+
+                Log.i(TAG, "Generated Answer: $finalAnswer (Raw: '$raw', History turns: ${conversationHistory.size})")
                 finalAnswer
             } catch (e: Exception) {
-                Log.e(TAG, "Generation error", e)
-                "I had trouble formulating a response, Boss. Please ask me again."
+                Log.w(TAG, "Generation error, attempting minimalist recovery", e)
+                try {
+                    clearHistory()
+                    val fallbackPrompt = "<|im_start|>system\nYou are DEVIL, an AI companion for Boss. Respond warmly and naturally in one concise sentence without markdown.<|im_end|>\n<|im_start|>user\n${query.trim()}<|im_end|>\n<|im_start|>assistant\n"
+                    val rawFallback = model?.generate(fallbackPrompt) ?: ""
+                    val cleaned = rawFallback.replace(Regex("<\\|.*?\\|>"), "").replace(Regex("[#*`_]"), "").trim()
+                    if (cleaned.isNotBlank()) {
+                        return@withContext cleaned
+                    }
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Minimalist recovery also failed", e2)
+                }
+                "I'm right here with you, Boss! What's on your mind?"
             }
         }
     }
