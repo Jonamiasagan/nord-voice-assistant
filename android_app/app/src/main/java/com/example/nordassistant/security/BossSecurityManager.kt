@@ -34,6 +34,12 @@ class BossSecurityManager private constructor(context: Context) {
         get() = prefs.getBoolean(KEY_ENROLLED, false)
         set(value) = prefs.edit().putBoolean(KEY_ENROLLED, value).apply()
 
+    fun isBossVoiceprintValid(): Boolean {
+        if (!isBossEnrolled) return false
+        val print = loadBossVoiceprint() ?: return false
+        return print.any { it != 0f && !it.isNaN() }
+    }
+
     fun isGuestSessionActive(): Boolean {
         val guest = activeGuest ?: return false
         val active = System.currentTimeMillis() < guestAccessExpiryMs
@@ -69,7 +75,7 @@ class BossSecurityManager private constructor(context: Context) {
     fun getSecurityStatus(): String {
         return when {
             isGuestSessionActive() -> "GUEST SESSION ACTIVE: ${activeGuest?.uppercase()}"
-            isBossEnrolled -> "BOSS SECURED // DEVIL ONLINE"
+            isBossVoiceprintValid() -> "BOSS SECURED // DEVIL ONLINE"
             else -> "BOSS MODE ACTIVE // DEVIL ONLINE"
         }
     }

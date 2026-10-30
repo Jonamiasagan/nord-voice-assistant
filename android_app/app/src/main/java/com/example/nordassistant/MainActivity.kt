@@ -1279,14 +1279,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             transcript = "Calibrating Boss Voiceprint... Speak now!"
             val pcmBytes = voiceRecorder.recordCalibration(3500L)
             assistantState = AssistantState.THINKING
-            if (pcmBytes.size > VoiceBiometrics.FRAME_SIZE * 4) {
-                val embedding = VoiceBiometrics.extractEmbedding(pcmBytes)
+            val embedding = if (pcmBytes.size > VoiceBiometrics.FRAME_SIZE * 4) {
+                VoiceBiometrics.extractEmbedding(pcmBytes)
+            } else FloatArray(0)
+
+            val isValid = embedding.any { it != 0f && !it.isNaN() }
+            if (isValid) {
                 bossSecurity.saveBossVoiceprint(embedding)
                 securityStatus = "BOSS SECURED (ENROLLED)"
                 speakResponse("Calibration successful! Your master acoustic voiceprint is now locked to DEVIL, Boss.")
                 transcript = "Boss Voiceprint Enrolled Successfully"
             } else {
-                speakResponse("Could not capture sufficient audio for calibration. Please try again.")
+                speakResponse("Could not capture sufficient audio voice features. Please speak louder into the microphone and try again.")
                 transcript = "Calibration failed: insufficient audio"
             }
             assistantState = AssistantState.IDLE
@@ -1302,6 +1306,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         // ── Voice Calibration & Voiceprint Management ──
         if (trimmed.contains(Regex("(?i)\\b(calibrate\\s*(my\\s*)?voice|enroll\\s*(my\\s*)?voice|setup\\s*voiceprint|register\\s*(my\\s*)?voice|record\\s*voiceprint)\\b"))) {
             handleVoiceCalibration()
+            return
+        }
+        if (trimmed.contains(Regex("(?i)\\b(is\\s*(my\\s*)?voice\\s*(calibrated|enrolled|registered)|voice\\s*(calibration|biometric)\\s*status|check\\s*(voice\\s*)?calibration|did\\s*i\\s*calibrate\\s*(my\\s*)?voice)\\b"))) {
+            if (bossSecurity.isBossVoiceprintValid()) {
+                speakResponse("Yes Boss, your acoustic voiceprint is calibrated and securely enrolled with DEVIL.", continueConversation = true)
+            } else {
+                speakResponse("No Boss, your voice is not yet calibrated. DEVIL is currently in open mode. You can say 'calibrate my voice' anytime to enroll your master voiceprint.", continueConversation = true)
+            }
             return
         }
         if (trimmed.contains(Regex("(?i)\\b(reset\\s*voiceprint|clear\\s*voiceprint|delete\\s*voiceprint|unregister\\s*voice)\\b"))) {
