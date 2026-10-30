@@ -145,7 +145,7 @@ object VoiceBiometrics {
                 sumSq += s * s
             }
             val rms = sqrt(sumSq / FRAME_SIZE)
-            if (rms < 0.012f) continue // Skip silent / unvoiced background noise frames
+            if (rms < 0.0025f) continue // Skip silent / unvoiced background noise frames
 
             // Apply Hamming window
             for (i in 0 until FRAME_SIZE) {

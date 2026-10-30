@@ -1279,12 +1279,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             transcript = "Calibrating Boss Voiceprint... Speak now!"
             val pcmBytes = voiceRecorder.recordCalibration(3500L)
             assistantState = AssistantState.THINKING
-            val embedding = if (pcmBytes.size > VoiceBiometrics.FRAME_SIZE * 4) {
-                VoiceBiometrics.extractEmbedding(pcmBytes)
-            } else FloatArray(0)
-
-            val isValid = embedding.any { it != 0f && !it.isNaN() }
-            if (isValid) {
+            if (pcmBytes.isNotEmpty()) {
                 try {
                     val calFile = File(filesDir, "boss_calibration.wav")
                     VoiceBiometrics.writeWavFile(pcmBytes, calFile)
@@ -1292,13 +1287,21 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 } catch (e: Exception) {
                     Log.w("MainActivity", "Could not save calibration wav", e)
                 }
+            }
+
+            val embedding = if (pcmBytes.size > VoiceBiometrics.FRAME_SIZE * 4) {
+                VoiceBiometrics.extractEmbedding(pcmBytes)
+            } else FloatArray(0)
+
+            val isValid = embedding.any { it != 0f && !it.isNaN() }
+            if (isValid) {
                 bossSecurity.saveBossVoiceprint(embedding)
                 securityStatus = "BOSS SECURED (ENROLLED)"
                 speakResponse("Calibration successful! Your master acoustic voiceprint is now locked to DEVIL, Boss.")
                 transcript = "Boss Voiceprint Enrolled Successfully"
             } else {
-                speakResponse("Could not capture sufficient audio voice features. Please speak louder into the microphone and try again.")
-                transcript = "Calibration failed: insufficient audio"
+                speakResponse("Could not capture sufficient audio voice features. You can say 'play my voice' to hear what was recorded, or say 'calibrate my voice' to try again.")
+                transcript = "Calibration: Speak louder into mic"
             }
             assistantState = AssistantState.IDLE
         }
