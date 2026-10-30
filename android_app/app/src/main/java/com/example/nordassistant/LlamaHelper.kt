@@ -88,6 +88,7 @@ object LlamaHelper {
             // Load via llama-kotlin-android with 2048 context and optimized parameters
             model = LlamaModel.load(internalModel.absolutePath) {
                 contextSize = 2048
+                batchSize = 2048 // Setting batchSize to 2048 prevents native SIGSEGV when prompt exceeds 512
                 threads = 4 // Optimal for Snapdragon 7 Gen 3: 4 performance cores
                 temperature = 0.25f
                 topP = 0.85f
@@ -95,7 +96,7 @@ object LlamaHelper {
                 stopSequences = listOf("<|im_end|>", "<|endoftext|>", "<|im_start|>", "\nUser:", "\nuser:", "\nDEVIL:", "\nBoss:")
             }
             modelReady = true
-            Log.i(TAG, "Model loaded successfully with contextSize=2048, maxTokens=90 ✓")
+            Log.i(TAG, "Model loaded successfully with contextSize=2048, batchSize=2048, maxTokens=90 ✓")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load model", e)
         }
@@ -106,7 +107,7 @@ object LlamaHelper {
     private val conversationHistory = mutableListOf<DialogueTurn>()
     private val recentJokes = mutableListOf<String>()
     private var lastInteractionTime = 0L
-    private const val MAX_HISTORY_TURNS = 12 // Up to 12 turns (6 full back-and-forth conversational turns)
+    private const val MAX_HISTORY_TURNS = 6 // Up to 6 turns (3 full back-and-forth conversational turns) to keep prompt well within batch bounds
     private const val SESSION_TIMEOUT_MS = 600_000L // 10 minutes session timeout
 
     private val generateMutex = Mutex()

@@ -780,7 +780,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private val vipSenders = setOf("uj", "baddu", "bethol", "amma", "uma", "barath", "bharath", "mom", "mother", "akka", "sister")
+    private val vipSenders = setOf("uj", "baddu", "bethol", "amma", "uma", "barath", "bharath", "mom", "mother", "akka", "sister", "you")
 
     private fun isVipSender(sender: String): Boolean {
         val clean = sender.lowercase(Locale.getDefault()).trim()
@@ -813,7 +813,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             "mom", "mother" -> "amma"
             "akka", "sister", "sis" -> "Akka"
             "syam", "syaam", "shyam", "shyaam", "sham", "syam fincare", "shyam fincare" -> "Syam"
-            "me", "myself", "you", "thambi", "thambi1" -> "7416960570"
+            "me", "myself", "you", "thambi", "thambi1" -> "You"
             else -> spoken
         }
     }
@@ -1497,10 +1497,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send\\s+)?(?:a\\s+)?whats?app(?:\\s+message)?\\s+(?:to\\s+)?(.+?)\\s+(?:saying|say|tell|telling|that)\\s+(.+)"
         )
         val sendWhatsAppDirectRegex = Regex(
-            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send|write|type)\\s+(?:a\\s+)?(?:whats?app\\s+)?message\\s+(?:to\\s+)?([a-zA-Z0-9+\\s]{1,25}?)\\s*[:,]?\\s+(.+)"
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send|write|type)\\s+(?:a\\s+)?(?:whats?app\\s+)?message\\s+(?:to\\s+)?(?!(?:to)\\b)([a-zA-Z0-9+\\s]{1,25}?)\\s*[:,]?\\s+(.+)"
         )
         val sendWhatsAppSimpleRegex = Regex(
-            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send|write|type)?\\s*(?:a\\s+)?whats?app(?:\\s+message)?\\s+(?:to\\s+)?([a-zA-Z0-9+\\s]{1,25}?)\\s*[:,]?\\s+(.+)"
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send|write|type)?\\s*(?:a\\s+)?whats?app(?:\\s+message)?\\s+(?:to\\s+)?(?!(?:to)\\b)([a-zA-Z0-9+\\s]{1,25}?)\\s*[:,]?\\s+(.+)"
+        )
+        val openWhatsAppToContactRegex = Regex(
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send|open)?\\s*(?:a\\s+)?whats?app(?:\\s+message)?\\s+to\\s+([a-zA-Z0-9+\\s]{1,25}?)$"
         )
         val sendMsgContentFirstRegex = Regex(
             "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send|write|type)\\s+(?:a\\s+)?(.+?)\\s+(?:whats?app\\s+)?message\\s+to\\s+([a-zA-Z0-9+\\s]{1,25}?)$"
@@ -1769,6 +1772,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val message = match.groupValues[2].trim()
                 sendWhatsAppVoiceNote(normalizeContactName(targetName), message)
             }
+            openWhatsAppToContactRegex.find(trimmed) != null -> {
+                val match = openWhatsAppToContactRegex.find(trimmed)!!
+                val targetName = match.groupValues[1].trim()
+                sendWhatsAppTextMessage(normalizeContactName(targetName), "")
+            }
             sendWhatsAppRegex.find(trimmed) != null -> {
                 val match = sendWhatsAppRegex.find(trimmed)!!
                 val targetName = match.groupValues[1].trim()
@@ -1789,8 +1797,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             sendMsgContentFirstRegex.find(trimmed) != null -> {
                 val match = sendMsgContentFirstRegex.find(trimmed)!!
-                val message = match.groupValues[1].trim()
+                val rawMsg = match.groupValues[1].trim()
                 val targetName = match.groupValues[2].trim()
+                val message = if (rawMsg.equals("whatsapp", ignoreCase = true) || rawMsg.equals("whats app", ignoreCase = true)) "" else rawMsg
                 sendWhatsAppTextMessage(normalizeContactName(targetName), message)
             }
             sendToOnWhatsAppRegex.find(trimmed) != null -> {
@@ -2243,23 +2252,30 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             speakResponse("Contact $targetName not found in your phone.")
             return
         }
+        Log.i("MainActivity", "sendWhatsAppTextMessage targetName='$targetName', rawMessage='$rawMessage', resolvedDisplayName='${contact.displayName}', resolvedNumber='${contact.number}'")
 
         val cleanNumber = formatPhoneNumberForWhatsApp(contact.number)
         val cleanMessage = rawMessage.trim()
             .replace(Regex("^that\\s+", RegexOption.IGNORE_CASE), "")
             .replace(Regex("^saying\\s+", RegexOption.IGNORE_CASE), "")
             .trim(' ', ':', '"', '\'')
-        val formattedText = cleanMessage
+        val formattedText = if (cleanMessage.equals("whatsapp", ignoreCase = true) || cleanMessage.equals("message", ignoreCase = true)) "" else cleanMessage
 
         speakResponse("Opening WhatsApp to send message to ${contact.displayName}.")
 
         try {
-            val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanNumber&text=${Uri.encode(formattedText)}")
+            val uri = if (formattedText.isNotEmpty()) {
+                Uri.parse("https://api.whatsapp.com/send?phone=$cleanNumber&text=${Uri.encode(formattedText)}")
+            } else {
+                Uri.parse("https://api.whatsapp.com/send?phone=$cleanNumber")
+            }
             val intent = Intent(Intent.ACTION_VIEW, uri).apply {
                 setPackage("com.whatsapp")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            DevilAccessibilityService.triggerAutoSend(contact.displayName)
+            if (formattedText.isNotEmpty()) {
+                DevilAccessibilityService.triggerAutoSend(contact.displayName)
+            }
             startActivity(intent)
         } catch (e: Exception) {
             Log.e("MainActivity", "Direct WhatsApp text link failed", e)
@@ -2560,6 +2576,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun findContactByName(name: String): ContactInfo? {
         val cleanName = normalizeContactName(name).trim()
+        Log.i("MainActivity", "findContactByName: input='$name' -> cleanName='$cleanName'")
+
+        if (cleanName.equals("to", ignoreCase = true) || cleanName.equals("for", ignoreCase = true) || cleanName.isBlank()) {
+            return null
+        }
+
+        // Fast-path: Self contact ("You", "myself", "me")
+        val isYou = cleanName.equals("You", ignoreCase = true) ||
+                    cleanName.equals("myself", ignoreCase = true) ||
+                    cleanName.equals("me", ignoreCase = true)
+        if (isYou) {
+            return ContactInfo("You", "7416960570")
+        }
+
         val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
         val projection = arrayOf(
             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
@@ -2571,6 +2601,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (digitsOnly.length >= 10) {
             if (digitsOnly.contains("82483739")) {
                 return ContactInfo("Akka", "09182483739")
+            }
+            if (digitsOnly.contains("7416960570")) {
+                return ContactInfo("You", "7416960570")
             }
             try {
                 val numSelection = "${ContactsContract.CommonDataKinds.Phone.NUMBER} LIKE ?"
