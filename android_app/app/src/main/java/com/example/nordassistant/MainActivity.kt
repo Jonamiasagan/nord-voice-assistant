@@ -112,7 +112,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         conversationWatchdogJob?.cancel()
         conversationWatchdogJob = null
         if (goodbyeMessage != null) {
-            speakResponse(goodbyeMessage, continueConversation = false)
+            transcript = goodbyeMessage
+            assistantState = AssistantState.SPEAKING
+            val utteranceId = "DEVIL_GOODBYE_${System.currentTimeMillis()}"
+            tts.speak(goodbyeMessage, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
         } else {
             assistantState = AssistantState.IDLE
             transcript = "Standing by, Boss."
@@ -330,6 +333,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             val cb = voiceNoteSynthesisCallback
                             voiceNoteSynthesisCallback = null
                             cb?.invoke()
+                        } else if (utteranceId?.contains("GOODBYE") == true) {
+                            inConversationSession = false
+                            autoListenAfterSpeech = false
+                            conversationSessionEndTime = 0L
+                            assistantState = AssistantState.IDLE
+                            transcript = "Standing by, Boss."
+                            stopSco()
+                            if (DevilProtocolManager.isSentryModeActive) {
+                                DevilSentryService.resumeAfterConversation()
+                            }
                         } else if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime) {
                             delay(350)
                             if (!isListening && assistantState == AssistantState.IDLE) {
@@ -502,7 +515,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var lastUserCommandForTurn: String? = null
     private var isHandlingQueryBackend = false
 
-    private fun speakResponse(text: String, continueConversation: Boolean = false, isFromLlama: Boolean = false) {
+    private fun speakResponse(text: String, continueConversation: Boolean = true, isFromLlama: Boolean = false) {
         val currentCmd = lastUserCommandForTurn
         if (currentCmd != null && !isHandlingQueryBackend && !isFromLlama) {
             LlamaHelper.recordTurn(currentCmd, text)
@@ -514,7 +527,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (DevilProtocolManager.isSentryModeActive) {
             DevilSentryService.pauseForConversation()
         }
-        if (continueConversation) {
+        if (continueConversation || inConversationSession) {
             refreshConversationSession()
         } else {
             inConversationSession = false
@@ -542,7 +555,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             if (DevilProtocolManager.isSentryModeActive) {
                 DevilSentryService.pauseForConversation()
             }
-            if (continueConversation) {
+            if (continueConversation || inConversationSession) {
                 refreshConversationSession()
             }
             if (trimmed.isNotEmpty()) {
@@ -576,30 +589,27 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val now = System.currentTimeMillis()
                 val sessionActive = inConversationSession && (now < conversationSessionEndTime)
 
-                // If error 13 (cannot check support/offline pack missing), disable offline enforcement
-                if (error == 13) {
-                    Log.w("MainActivity", "SpeechRecognizer error 13 (offline pack missing). Falling back to dynamic cloud/local recognizer.")
-                    offlineSpeechSupported = false
-                    recreateSpeechRecognizer()
-                } else if (error == 11 || 
-                    error == SpeechRecognizer.ERROR_CLIENT || 
-                    error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || 
-                    error == SpeechRecognizer.ERROR_AUDIO ||
-                    error == SpeechRecognizer.ERROR_NETWORK ||
-                    error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT ||
-                    error == SpeechRecognizer.ERROR_SERVER) {
-                    recreateSpeechRecognizer()
-                }
-
                 if (sessionActive && assistantState != AssistantState.SPEAKING && assistantState != AssistantState.THINKING) {
                     // Conversation session is active within the 40-second window!
                     assistantState = AssistantState.IDLE
                     val secondsLeft = ((conversationSessionEndTime - now) / 1000L).coerceAtLeast(0)
                     transcript = "Listening... (${secondsLeft}s)"
                     Log.i("MainActivity", "Recognizer error $error in active 40s session. Auto-re-listening (${secondsLeft}s remaining)...")
-                    val retryDelay = if (error == 11 || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_AUDIO) 700L else 300L
+                    val retryDelay = when (error) {
+                        13 -> {
+                            offlineSpeechSupported = false
+                            recreateSpeechRecognizer()
+                            600L
+                        }
+                        11, SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_AUDIO -> 650L
+                        else -> 300L
+                    }
                     scope.launch(Dispatchers.Main) {
                         delay(retryDelay)
+                        if (error == SpeechRecognizer.ERROR_CLIENT || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == 11) {
+                            recreateSpeechRecognizer()
+                            delay(150L)
+                        }
                         if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime && assistantState == AssistantState.IDLE && !isListening) {
                             startListening()
                         }
