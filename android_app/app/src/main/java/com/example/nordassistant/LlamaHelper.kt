@@ -312,104 +312,25 @@ object LlamaHelper {
     }
 
     /**
-     * Streams responses sentence-by-sentence as tokens are generated from Qwen2.5.
-     * Fires onSentenceChunk for each detected sentence boundary, dramatically reducing TTFT (<300ms).
+     * Safe response generation avoiding native SIGSEGV in llama-kotlin-android nativeGenerateStream.
+     * Generates via rock-solid nativeGenerate and emits chunks cleanly for TTS.
      */
     suspend fun generateAnswerStream(
         query: String,
         onSentenceChunk: suspend (chunk: String, isFirst: Boolean, isFinal: Boolean) -> Unit
     ): String = withContext(Dispatchers.IO) {
-        if (!modelReady || model == null) {
-            val fallback = "I'm right here with you, Boss! What shall we talk about?"
-            onSentenceChunk(fallback, true, true)
-            return@withContext fallback
-        }
-
-        val now = System.currentTimeMillis()
-        if (now - lastInteractionTime > SESSION_TIMEOUT_MS) {
-            clearHistory()
-        }
-        lastInteractionTime = now
-
-        generateMutex.withLock {
-            val fullResponseBuilder = StringBuilder()
-            try {
-                Log.i(TAG, "Incoming streaming query: '$query'")
-                val chatPrompt = buildChatPrompt(query)
-                Log.d(TAG, "Chat prompt sent to model for streaming:\n$chatPrompt")
-
-                val currentSentence = StringBuilder()
-                var isFirstChunk = true
-                var sentenceCount = 0
-                var isToolCall = false
-
-                val streamFlow = model!!.generateStream(chatPrompt)
-                streamFlow.collect { token ->
-                    val cleanedToken = token.replace(Regex("<\\|.*?\\|>"), "").replace(Regex("[#*`_]"), "")
-                    fullResponseBuilder.append(cleanedToken)
-
-                    if (fullResponseBuilder.trim().startsWith("<tool_call>") || cleanedToken.contains("<tool_call>")) {
-                        isToolCall = true
-                        return@collect
-                    }
-
-                    if (!isToolCall) {
-                        val englishToken = cleanedToken.filter { it.code in 32..126 || it == '\n' || it == '’' || it == '‘' || it == '“' || it == '”' }
-                        currentSentence.append(englishToken)
-
-                        val textSoFar = currentSentence.toString()
-                        val match = Regex("(?<=[.!?])(\\s+|$)").find(textSoFar)
-                        if (match != null && textSoFar.length >= 10 && sentenceCount < 3) {
-                            val endIdx = (match.range.first + 1).coerceAtMost(textSoFar.length)
-                            val sentence = textSoFar.substring(0, endIdx).trim()
-                            val remainder = if (endIdx < textSoFar.length) textSoFar.substring(endIdx) else ""
-                            if (sentence.isNotBlank()) {
-                                sentenceCount++
-                                val isCandidateFinal = sentenceCount >= 3
-                                onSentenceChunk(sentence, isFirstChunk, isCandidateFinal)
-                                isFirstChunk = false
-                                currentSentence.clear()
-                                currentSentence.append(remainder)
-                            }
-                        }
-                    }
-                }
-
-                if (!isToolCall) {
-                    val remainingText = currentSentence.toString().trim()
-                    if (remainingText.isNotEmpty() && sentenceCount < 3) {
-                        sentenceCount++
-                        onSentenceChunk(remainingText, isFirstChunk, true)
-                    } else if (isFirstChunk) {
-                        val candidate = fullResponseBuilder.toString().trim().ifEmpty {
-                            "I'm right here with you, Boss! What's on your mind?"
-                        }
-                        onSentenceChunk(candidate, true, true)
-                    } else {
-                        onSentenceChunk("", false, true)
-                    }
-                }
-
-                val finalAnswer = fullResponseBuilder.toString().trim().ifEmpty {
-                    "I'm right here with you, Boss! What's on your mind?"
-                }
-
-                synchronized(conversationHistory) {
-                    conversationHistory.add(DialogueTurn("user", query.trim()))
-                    conversationHistory.add(DialogueTurn("assistant", finalAnswer))
-                }
-                memoryVault?.recordJournalTurn(query.trim(), finalAnswer)
-                if (query.contains("joke", ignoreCase = true) || finalAnswer.contains("Because ", ignoreCase = true)) {
-                    recordJoke(finalAnswer)
-                }
-                finalAnswer
-            } catch (e: Exception) {
-                Log.w(TAG, "Streaming generation failed, falling back to synchronous generateAnswer", e)
-                val fallbackAnswer = generateAnswer(query)
-                onSentenceChunk(fallbackAnswer, true, true)
-                fallbackAnswer
+        val answer = generateAnswer(query)
+        val sentences = answer.split(Regex("(?<=[.!?])\\s+")).filter { it.isNotBlank() }
+        if (sentences.isEmpty()) {
+            onSentenceChunk(answer, true, true)
+        } else {
+            sentences.forEachIndexed { index, sentence ->
+                val isFirst = index == 0
+                val isFinal = index == sentences.size - 1
+                onSentenceChunk(sentence, isFirst, isFinal)
             }
         }
+        answer
     }
 
     /** Clean up native resources.  Call from onDestroy. */

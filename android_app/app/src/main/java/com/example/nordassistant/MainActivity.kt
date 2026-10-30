@@ -202,21 +202,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     transcript = transcript,
                     securityStatus = securityStatus,
                     onAvatarClick = {
-                        if (assistantState == AssistantState.IDLE) {
-                            refreshConversationSession()
-                            startListening()
-                        } else if (assistantState == AssistantState.SPEAKING) {
+                        if (assistantState == AssistantState.SPEAKING) {
                             autoListenAfterSpeech = false
                             tts.stop()
                             assistantState = AssistantState.IDLE
-                            if (System.currentTimeMillis() < conversationSessionEndTime) {
-                                scope.launch(Dispatchers.Main) {
-                                    delay(200)
-                                    startListening()
-                                }
-                            } else {
-                                endConversationSession()
+                            refreshConversationSession()
+                            scope.launch(Dispatchers.Main) {
+                                delay(200)
+                                startListening()
                             }
+                        } else {
+                            refreshConversationSession()
+                            startListening()
                         }
                     }
                 )
@@ -344,14 +341,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                 DevilSentryService.resumeAfterConversation()
                             }
                         } else if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime) {
-                            delay(350)
-                            if (!isListening && assistantState == AssistantState.IDLE) {
+                            val secondsLeft = ((conversationSessionEndTime - System.currentTimeMillis()) / 1000L).coerceAtLeast(0)
+                            transcript = "Listening... (${secondsLeft}s)"
+                            delay(250)
+                            if (inConversationSession && assistantState != AssistantState.SPEAKING && !isListening) {
                                 startListening()
                             }
                         } else if (autoListenAfterSpeech) {
                             autoListenAfterSpeech = false
-                            delay(350)
-                            if (!isListening && assistantState == AssistantState.IDLE) {
+                            delay(250)
+                            if (!isListening && assistantState != AssistantState.SPEAKING) {
                                 startListening()
                             }
                         } else {
@@ -368,6 +367,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         if (utteranceId?.startsWith("VOICE_NOTE_") == true) {
                             voiceNoteSynthesisCallback = null
                             speakResponse("Sorry Boss, I encountered an issue preparing the audio note.")
+                        } else if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime) {
+                            delay(250)
+                            if (inConversationSession && assistantState != AssistantState.SPEAKING && !isListening) {
+                                startListening()
+                            }
                         }
                     }
                 }
@@ -576,8 +580,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             override fun onReadyForSpeech(params: Bundle?) { 
                 isListening = true 
                 assistantState = AssistantState.LISTENING
+                if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime) {
+                    val secondsLeft = ((conversationSessionEndTime - System.currentTimeMillis()) / 1000L).coerceAtLeast(0)
+                    transcript = "Listening... (${secondsLeft}s)"
+                }
             }
-            override fun onBeginningOfSpeech() {}
+            override fun onBeginningOfSpeech() {
+                isListening = true
+                assistantState = AssistantState.LISTENING
+            }
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() { 
@@ -589,28 +600,28 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val now = System.currentTimeMillis()
                 val sessionActive = inConversationSession && (now < conversationSessionEndTime)
 
-                if (sessionActive && assistantState != AssistantState.SPEAKING && assistantState != AssistantState.THINKING) {
-                    // Conversation session is active within the 40-second window!
+                if (sessionActive && assistantState != AssistantState.SPEAKING) {
+                    // Conversation session is active within the continuous conversation window!
                     assistantState = AssistantState.IDLE
                     val secondsLeft = ((conversationSessionEndTime - now) / 1000L).coerceAtLeast(0)
                     transcript = "Listening... (${secondsLeft}s)"
-                    Log.i("MainActivity", "Recognizer error $error in active 40s session. Auto-re-listening (${secondsLeft}s remaining)...")
+                    Log.i("MainActivity", "Recognizer error $error in active session. Auto-re-listening (${secondsLeft}s remaining)...")
                     val retryDelay = when (error) {
                         13 -> {
                             offlineSpeechSupported = false
                             recreateSpeechRecognizer()
-                            600L
+                            400L
                         }
-                        11, SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_AUDIO -> 650L
-                        else -> 300L
+                        11, SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_AUDIO -> 500L
+                        else -> 200L
                     }
                     scope.launch(Dispatchers.Main) {
                         delay(retryDelay)
                         if (error == SpeechRecognizer.ERROR_CLIENT || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == 11) {
                             recreateSpeechRecognizer()
-                            delay(150L)
+                            delay(100L)
                         }
-                        if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime && assistantState == AssistantState.IDLE && !isListening) {
+                        if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime && assistantState != AssistantState.SPEAKING && !isListening) {
                             startListening()
                         }
                     }
@@ -623,6 +634,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Standing by, Boss."
                         SpeechRecognizer.ERROR_AUDIO -> "Audio recording issue"
                         SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognizer busy, tap to retry"
+                        SpeechRecognizer.ERROR_CLIENT -> "Voice client error, retrying..."
                         else -> "Standing by, Boss."
                     }
                     stopSco()
@@ -656,13 +668,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     val text = selectedCandidate
                     transcript = text
                     assistantState = AssistantState.THINKING
-                    refreshConversationSession() // Reset 40-second timer on user speech!
+                    refreshConversationSession() // Reset timer on user speech!
                     processCommand(text)
                 } else {
                     if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime) {
+                        assistantState = AssistantState.IDLE
+                        val secondsLeft = ((conversationSessionEndTime - System.currentTimeMillis()) / 1000L).coerceAtLeast(0)
+                        transcript = "Listening... (${secondsLeft}s)"
                         scope.launch(Dispatchers.Main) {
                             delay(200)
-                            if (!isListening && assistantState == AssistantState.IDLE) {
+                            if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime && assistantState != AssistantState.SPEAKING && !isListening) {
                                 startListening()
                             }
                         }
@@ -708,7 +723,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var offlineSpeechSupported = true
 
     private fun startListening() {
-        if (isListening || assistantState == AssistantState.SPEAKING) return
+        if (assistantState == AssistantState.SPEAKING) return
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
         if (DevilProtocolManager.isSentryModeActive) {
             DevilSentryService.pauseForConversation()
@@ -738,9 +753,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         try {
             speechRecognizer.startListening(intent)
+            isListening = true
+            assistantState = AssistantState.LISTENING
+            if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime) {
+                val secondsLeft = ((conversationSessionEndTime - System.currentTimeMillis()) / 1000L).coerceAtLeast(0)
+                transcript = "Listening... (${secondsLeft}s)"
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "startListening failed, recreating recognizer", e)
+            isListening = false
+            assistantState = AssistantState.IDLE
             recreateSpeechRecognizer()
+            if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime) {
+                scope.launch(Dispatchers.Main) {
+                    delay(200)
+                    startListening()
+                }
+            }
         }
     }
     
@@ -3045,27 +3074,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 transcript = "DEVIL is thinking..."
             }
             try {
-                val answer = LlamaHelper.generateAnswerStream(query) { chunk, isFirst, isFinal ->
-                    withContext(Dispatchers.Main) {
-                        inConversationSession = true
-                        speakStreamingChunk(chunk, isFirst, isFinal, continueConversation = true)
-                        if (isFinal) {
-                            isHandlingQueryBackend = false
-                        }
-                    }
-                }
+                val answer = LlamaHelper.generateAnswer(query)
                 val toolAction = com.example.nordassistant.protocol.DevilToolDispatcher.parseToolCall(answer)
-                if (toolAction != null) {
-                    withContext(Dispatchers.Main) {
-                        isHandlingQueryBackend = false
+                withContext(Dispatchers.Main) {
+                    isHandlingQueryBackend = false
+                    if (toolAction != null) {
                         executeToolAction(toolAction)
+                    } else {
+                        inConversationSession = true
+                        speakResponse(answer, continueConversation = true, isFromLlama = true)
                     }
                 }
             } catch (e: Exception) {
+                Log.e("MainActivity", "queryBackend error", e)
                 withContext(Dispatchers.Main) {
+                    isHandlingQueryBackend = false
                     inConversationSession = true
                     speakResponse("I'm right here with you, Boss! Tell me more.", continueConversation = true, isFromLlama = true)
-                    isHandlingQueryBackend = false
                 }
             }
         }
