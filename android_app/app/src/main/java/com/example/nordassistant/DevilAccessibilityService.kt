@@ -386,6 +386,39 @@ class DevilAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun clickSendButton(node: AccessibilityNodeInfo): Boolean {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        var dispatched = false
+        if (!bounds.isEmpty && bounds.width() > 0 && bounds.height() > 0) {
+            val clickX = bounds.centerX().toFloat()
+            val clickY = bounds.centerY().toFloat()
+            Log.i(TAG, "Dispatching hardware touch gesture on Send button at ($clickX, $clickY) for bounds: $bounds")
+            val path = Path().apply {
+                moveTo(clickX, clickY)
+            }
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
+                .build()
+            dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    super.onCompleted(gestureDescription)
+                    Log.i(TAG, "Hardware touch gesture on Send COMPLETED at ($clickX, $clickY)")
+                }
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    super.onCancelled(gestureDescription)
+                    Log.w(TAG, "Hardware touch gesture on Send CANCELLED at ($clickX, $clickY)")
+                }
+            }, null)
+        }
+
+        // Also fire performAction as backup
+        val actionClicked = (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) ||
+                (node.parent?.isClickable == true && node.parent.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+
+        return dispatched || actionClicked
+    }
+
     private fun clickNodeOrCoordinates(node: AccessibilityNodeInfo): Boolean {
         // Strategy A: Direct click on node
         if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
@@ -467,33 +500,49 @@ class DevilAccessibilityService : AccessibilityService() {
             return
         }
 
-        val rootNode = rootInActiveWindow ?: return
+        val rootNodes = mutableListOf<AccessibilityNodeInfo>()
+        val activeRoot = rootInActiveWindow
+        if (activeRoot != null) rootNodes.add(activeRoot)
+        try {
+            for (window in windows) {
+                val r = window.root
+                if (r != null && rootNodes.none { it == r }) {
+                    rootNodes.add(r)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error collecting windows", e)
+        }
+        if (rootNodes.isEmpty()) return
 
         try {
             // ── Path 1: Direct Send Button (Active Chat or Media Preview) ──
-            val sendNodes = rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")
-            if (!sendNodes.isNullOrEmpty()) {
-                for (node in sendNodes) {
-                    if (node.isClickable || node.isEnabled) {
-                        Log.i(TAG, "Found WhatsApp send button (com.whatsapp:id/send). Clicking now!")
-                        val success = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        if (success) {
-                            isAutoSendPending = false
-                            Log.i(TAG, "AUTO-SEND COMPLETED SUCCESSFULLY via com.whatsapp:id/send")
-                            return
+            val sendViewIds = listOf(
+                "com.whatsapp:id/send",
+                "com.whatsapp:id/send_container",
+                "com.whatsapp:id/conversation_entry_action_button"
+            )
+            for (rootNode in rootNodes) {
+                for (vId in sendViewIds) {
+                    val sendNodes = rootNode.findAccessibilityNodeInfosByViewId(vId)
+                    if (!sendNodes.isNullOrEmpty()) {
+                        for (node in sendNodes) {
+                            Log.i(TAG, "Found WhatsApp send button via $vId. Clicking now!")
+                            if (clickSendButton(node)) {
+                                isAutoSendPending = false
+                                Log.i(TAG, "AUTO-SEND COMPLETED SUCCESSFULLY via $vId")
+                                return
+                            }
                         }
                     }
                 }
-            }
 
-            // Path 1b: Search by Content Description "Send"
-            val descNodes = mutableListOf<AccessibilityNodeInfo>()
-            findNodesByDescription(rootNode, "Send", descNodes)
-            for (node in descNodes) {
-                if (node.isClickable || node.isEnabled) {
+                // Path 1b: Search by Content Description "Send"
+                val descNodes = mutableListOf<AccessibilityNodeInfo>()
+                findNodesByDescription(rootNode, "Send", descNodes)
+                for (node in descNodes) {
                     Log.i(TAG, "Found Send button by description 'Send'. Clicking now!")
-                    val success = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    if (success) {
+                    if (clickSendButton(node)) {
                         isAutoSendPending = false
                         Log.i(TAG, "AUTO-SEND COMPLETED SUCCESSFULLY via description")
                         return
@@ -503,35 +552,37 @@ class DevilAccessibilityService : AccessibilityService() {
 
             // ── Path 2: Contact Picker (ExternalShareAlias) for Voice Notes ──
             val target = targetContactName
-            if (!target.isNullOrBlank()) {
-                val contactNodes = rootNode.findAccessibilityNodeInfosByText(target)
-                if (!contactNodes.isNullOrEmpty()) {
-                    for (cNode in contactNodes) {
-                        var clickableRow: AccessibilityNodeInfo? = cNode
-                        while (clickableRow != null && !clickableRow.isClickable) {
-                            clickableRow = clickableRow.parent
-                        }
-                        if (clickableRow != null && clickableRow.isClickable) {
-                            Log.i(TAG, "Selecting contact row for '$target' in picker")
-                            clickableRow.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                            break
+            for (rootNode in rootNodes) {
+                if (!target.isNullOrBlank()) {
+                    val contactNodes = rootNode.findAccessibilityNodeInfosByText(target)
+                    if (!contactNodes.isNullOrEmpty()) {
+                        for (cNode in contactNodes) {
+                            var clickableRow: AccessibilityNodeInfo? = cNode
+                            while (clickableRow != null && !clickableRow.isClickable) {
+                                clickableRow = clickableRow.parent
+                            }
+                            if (clickableRow != null) {
+                                Log.i(TAG, "Selecting contact row for '$target' in picker")
+                                if (clickNodeOrCoordinates(clickableRow)) {
+                                    break
+                                }
+                            }
                         }
                     }
                 }
-            }
 
-            // Click Forward / Next FAB in contact picker
-            val nextNodes = rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/next_btn")
-            val fabNodes = if (nextNodes.isNullOrEmpty()) {
-                rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/fab")
-            } else nextNodes
+                // Click Forward / Next FAB in contact picker
+                val nextNodes = rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/next_btn")
+                val fabNodes = if (nextNodes.isNullOrEmpty()) {
+                    rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/fab")
+                } else nextNodes
 
-            if (!fabNodes.isNullOrEmpty()) {
-                for (fab in fabNodes) {
-                    if (fab.isClickable || fab.isEnabled) {
+                if (!fabNodes.isNullOrEmpty()) {
+                    for (fab in fabNodes) {
                         Log.i(TAG, "Clicking next FAB button in WhatsApp picker")
-                        fab.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        break
+                        if (clickNodeOrCoordinates(fab)) {
+                            break
+                        }
                     }
                 }
             }
