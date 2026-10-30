@@ -320,6 +320,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     }
                 }
                 override fun onDone(utteranceId: String?) {
+                    if (utteranceId?.contains("STREAM_CHUNK") == true) {
+                        // Intermediate streaming chunk completed while subsequent chunks are queued
+                        return
+                    }
                     scope.launch(Dispatchers.Main) {
                         assistantState = AssistantState.IDLE
                         if (utteranceId?.startsWith("VOICE_NOTE_") == true) {
@@ -521,6 +525,37 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         val utteranceId = "DEVIL_${System.currentTimeMillis()}"
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+    }
+
+    private fun speakStreamingChunk(
+        chunk: String,
+        isFirst: Boolean,
+        isFinal: Boolean,
+        continueConversation: Boolean = true
+    ) {
+        val trimmed = chunk.trim()
+        if (trimmed.isEmpty() && !isFinal) return
+
+        if (isFirst) {
+            transcript = trimmed
+            assistantState = AssistantState.SPEAKING
+            if (DevilProtocolManager.isSentryModeActive) {
+                DevilSentryService.pauseForConversation()
+            }
+            if (continueConversation) {
+                refreshConversationSession()
+            }
+            if (trimmed.isNotEmpty()) {
+                val utteranceId = if (isFinal) "DEVIL_STREAM_FINAL_${System.currentTimeMillis()}" else "DEVIL_STREAM_CHUNK_${System.currentTimeMillis()}"
+                tts.speak(trimmed, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            }
+        } else {
+            if (trimmed.isNotEmpty()) {
+                transcript = if (transcript.isEmpty()) trimmed else "$transcript $trimmed"
+                val utteranceId = if (isFinal) "DEVIL_STREAM_FINAL_${System.currentTimeMillis()}" else "DEVIL_STREAM_CHUNK_${System.currentTimeMillis()}"
+                tts.speak(trimmed, TextToSpeech.QUEUE_ADD, null, utteranceId)
+            }
+        }
     }
 
     private fun createSpeechRecognizerListener(): RecognitionListener {
@@ -2412,53 +2447,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun openMapsRoute(origin: String?, destination: String) {
-        try {
-            val mapsUri = if (origin.isNullOrBlank()) {
-                Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${Uri.encode(destination)}")
-            } else {
-                Uri.parse("https://www.google.com/maps/dir/?api=1&origin=${Uri.encode(origin)}&destination=${Uri.encode(destination)}")
-            }
-
-            val mapIntent = Intent(Intent.ACTION_VIEW, mapsUri).apply {
-                setPackage("com.google.android.apps.maps")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            if (mapIntent.resolveActivity(packageManager) != null) {
-                startActivity(mapIntent)
-            } else {
-                startActivity(Intent(Intent.ACTION_VIEW, mapsUri).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                })
-            }
+        val success = com.example.nordassistant.navigation.MapsNavigationHelper.openRoute(this, origin, destination)
+        if (success) {
             if (origin.isNullOrBlank()) {
                 speakResponse("Opening Google Maps to show distance and route to $destination.")
             } else {
                 speakResponse("Showing distance and route from $origin to $destination in Google Maps.")
             }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Error opening Maps", e)
+        } else {
             speakResponse("Could not open Google Maps.")
         }
     }
 
     private fun openMapsNavigation(destination: String) {
-        try {
-            val navUri = Uri.parse("google.navigation:q=${Uri.encode(destination)}")
-            val mapIntent = Intent(Intent.ACTION_VIEW, navUri).apply {
-                setPackage("com.google.android.apps.maps")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            if (mapIntent.resolveActivity(packageManager) != null) {
-                startActivity(mapIntent)
-            } else {
-                val webUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=${Uri.encode(destination)}")
-                startActivity(Intent(Intent.ACTION_VIEW, webUri).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                })
-            }
+        val success = com.example.nordassistant.navigation.MapsNavigationHelper.startTurnByTurn(this, destination)
+        if (success) {
             speakResponse("Starting navigation to $destination in Google Maps.")
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Error starting navigation", e)
+        } else {
             speakResponse("Could not open Google Maps.")
         }
     }
@@ -2788,21 +2793,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val cleanPlaylistName = playlistTarget.replace(Regex("[^a-zA-Z0-9\\s_-]"), "").trim().lowercase(Locale.getDefault())
                 val trackCount = vlcPlaylists[cleanPlaylistName]
 
-                val vlcPlaylistIntent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
-                    putExtra(SearchManager.QUERY, cleanPlaylistName)
-                    putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/playlist")
-                    putExtra("android.intent.extra.focus", "vnd.android.cursor.item/playlist")
-                    putExtra(MediaStore.EXTRA_MEDIA_PLAYLIST, cleanPlaylistName)
-                    putExtra("android.intent.extra.playlist", cleanPlaylistName)
-                    putExtra("extra_playlist", cleanPlaylistName)
-                    if (shuffle) {
-                        putExtra("android.intent.extra.SHUFFLE", true)
-                        putExtra("shuffle", true)
-                        putExtra("EXTRA_SHUFFLE", true)
-                    }
-                    setPackage("org.videolan.vlc")
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
+                val vlcPlaylistIntent = com.example.nordassistant.media.VlcMediaHelper.createVlcPlaylistIntent(cleanPlaylistName, shuffle)
 
                 if (vlcPlaylistIntent.resolveActivity(packageManager) != null) {
                     startActivity(vlcPlaylistIntent)
@@ -2948,6 +2939,43 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun executeToolAction(action: com.example.nordassistant.protocol.DevilToolAction) {
+        when (action) {
+            is com.example.nordassistant.protocol.DevilToolAction.SendWhatsApp -> {
+                sendWhatsAppTextMessage(normalizeContactName(action.recipient), action.message)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.SwitchProtocol -> {
+                handleProtocolSwitch(action.protocol)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.CheckShiftStatus -> {
+                val ans = com.example.nordassistant.data.DarwinboxShiftTracker.getShiftStatus(this)
+                speakResponse(ans, continueConversation = true)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.CheckHolidays -> {
+                val ans = com.example.nordassistant.data.CorporateCalendarEngine.getTodayHolidayStatus()
+                speakResponse(ans, continueConversation = true)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.PlayMedia -> {
+                playMedia(action.query, action.shuffle)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.Navigate -> {
+                openMapsNavigation(action.destination)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.StoreMemory -> {
+                memoryVault.remember(action.key, action.fact)
+                speakResponse("Stored in memory vault, Boss: ${action.key} is ${action.fact}.", continueConversation = true)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.RecallMemory -> {
+                val item = memoryVault.recall(action.key)
+                if (item != null) {
+                    speakResponse("According to your memory vault, Boss: ${item.key} is ${item.fact}.", continueConversation = true)
+                } else {
+                    speakResponse("I couldn't find any memory stored for ${action.key}, Boss.", continueConversation = true)
+                }
+            }
+        }
+    }
+
     private fun queryBackend(query: String) {
         isHandlingQueryBackend = true
         scope.launch(Dispatchers.IO) {
@@ -2956,11 +2984,21 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 transcript = "DEVIL is thinking..."
             }
             try {
-                val answer = LlamaHelper.generateAnswer(query)
-                withContext(Dispatchers.Main) {
-                    inConversationSession = true
-                    speakResponse(answer, continueConversation = true, isFromLlama = true)
-                    isHandlingQueryBackend = false
+                val answer = LlamaHelper.generateAnswerStream(query) { chunk, isFirst, isFinal ->
+                    withContext(Dispatchers.Main) {
+                        inConversationSession = true
+                        speakStreamingChunk(chunk, isFirst, isFinal, continueConversation = true)
+                        if (isFinal) {
+                            isHandlingQueryBackend = false
+                        }
+                    }
+                }
+                val toolAction = com.example.nordassistant.protocol.DevilToolDispatcher.parseToolCall(answer)
+                if (toolAction != null) {
+                    withContext(Dispatchers.Main) {
+                        isHandlingQueryBackend = false
+                        executeToolAction(toolAction)
+                    }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {

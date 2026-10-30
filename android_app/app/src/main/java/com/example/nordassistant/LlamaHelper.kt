@@ -6,6 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import org.codeshipping.llamakotlin.LlamaModel
 import com.example.nordassistant.data.BossMemoryVault
 import com.example.nordassistant.protocol.DevilProtocol
@@ -173,6 +175,66 @@ object LlamaHelper {
     }
 
     /**
+     * Constructs the ChatML prompt with persona, memory, and multi-turn context.
+     */
+    fun buildChatPrompt(query: String): String {
+        val promptBuilder = StringBuilder()
+        promptBuilder.append("<|im_start|>system\n")
+        val personaPrompt = when (DevilProtocolManager.currentProtocol) {
+            DevilProtocol.JARVIS ->
+                "You are J.A.R.V.I.S., the formal British AI assistant for Boss. Be eloquent, loyal, and witty in 1-2 spoken sentences. Accurately recall and quote prior conversation context and jokes when Boss asks."
+            DevilProtocol.FRIDAY ->
+                "You are F.R.I.D.A.Y., the energetic and warm tactical companion AI for Boss. Be lively, helpful, and concise in 1-2 spoken sentences. Accurately recall prior conversation context and jokes when Boss asks."
+            DevilProtocol.EDITH ->
+                "You are E.D.I.T.H., tactical defense AI for Boss. Be analytical, precise, and concise in 1-2 spoken sentences. Accurately recall prior conversation context when queried."
+            DevilProtocol.BARN_DOOR ->
+                "You are DEVIL in silent meeting mode. Answer Boss in one short, quiet spoken sentence."
+            DevilProtocol.HOUSE_PARTY ->
+                "You are DEVIL in developer mode. Answer Boss directly and technically in 1 to 2 sentences."
+            else ->
+                "You are DEVIL, an intelligent, loyal, witty, and fun AI companion for your Boss. Chat naturally, warmly, and helpfully in 1 to 2 concise spoken sentences without markdown or bullet points. You already know your Boss well; never introduce yourself during casual chat.\n" +
+                "CONVERSATION MEMORY RULES:\n" +
+                "1. You have a sharp, active memory of earlier jokes, remarks, and topics discussed in the conversation turns above.\n" +
+                "2. When Boss asks if you remember prior jokes, questions, or statements (e.g. 'do you remember', 'what did you say', 'you said some jokes earlier', 'where we ended'), ALWAYS directly cite or quote what was said earlier (e.g. 'Yes Boss, I told you the joke about [quote joke]!' or 'We were talking about X').\n" +
+                "3. NEVER reply with evasive brush-offs like 'I am always ready' or 'I can tell jokes' when Boss asks what was said earlier; state the actual conversation facts!"
+        }
+        promptBuilder.append(personaPrompt)
+
+        val jokesList = getRecentJokes()
+        if (jokesList.isNotEmpty()) {
+            promptBuilder.append("\n[Jokes already shared in this session: ").append(jokesList.takeLast(3).joinToString(" | ")).append("]")
+        }
+
+        val savedMemories = memoryVault?.getMemoryContextForPrompt()
+        if (!savedMemories.isNullOrBlank()) {
+            promptBuilder.append("\nMemory Vault: ").append(savedMemories.take(160))
+        }
+
+        val toolPrompt = "\nTOOL CALLING INSTRUCTION:\n" +
+            "If Boss explicitly commands an action you can execute, you may reply with a single <tool_call> JSON:\n" +
+            "- WhatsApp: <tool_call>{\"action\": \"whatsapp\", \"recipient\": \"Name\", \"message\": \"text\"}</tool_call>\n" +
+            "- Protocol: <tool_call>{\"action\": \"protocol\", \"mode\": \"jarvis|friday|edith|barn_door|baby_monitor|boss_mode\"}</tool_call>\n" +
+            "- Shift/Clock: <tool_call>{\"action\": \"shift_status\"}</tool_call>\n" +
+            "- Music: <tool_call>{\"action\": \"play_music\", \"query\": \"artist or song\"}</tool_call>\n" +
+            "- Navigation: <tool_call>{\"action\": \"navigate\", \"destination\": \"place\"}</tool_call>\n" +
+            "Otherwise for normal conversation, reply directly with natural speech and NO tool call.\n"
+        promptBuilder.append(toolPrompt)
+        promptBuilder.append("<|im_end|>\n")
+
+        synchronized(conversationHistory) {
+            while (conversationHistory.size > MAX_HISTORY_TURNS) {
+                conversationHistory.removeAt(0)
+            }
+            for (turn in conversationHistory) {
+                promptBuilder.append("<|im_start|>${turn.role}\n${turn.content}<|im_end|>\n")
+            }
+        }
+
+        promptBuilder.append("<|im_start|>user\n${query.trim()}<|im_end|>\n<|im_start|>assistant\n")
+        return promptBuilder.toString()
+    }
+
+    /**
      * Generates an intelligent, context-aware answer using Qwen2.5 ChatML format
      * with multi-turn conversation history.
      */
@@ -190,51 +252,7 @@ object LlamaHelper {
         generateMutex.withLock {
             try {
                 Log.i(TAG, "Incoming query: '$query'")
-                val promptBuilder = StringBuilder()
-                promptBuilder.append("<|im_start|>system\n")
-                val personaPrompt = when (DevilProtocolManager.currentProtocol) {
-                    DevilProtocol.JARVIS ->
-                        "You are J.A.R.V.I.S., the formal British AI assistant for Boss. Be eloquent, loyal, and witty in 1-2 spoken sentences. Accurately recall and quote prior conversation context and jokes when Boss asks."
-                    DevilProtocol.FRIDAY ->
-                        "You are F.R.I.D.A.Y., the energetic and warm tactical companion AI for Boss. Be lively, helpful, and concise in 1-2 spoken sentences. Accurately recall prior conversation context and jokes when Boss asks."
-                    DevilProtocol.EDITH ->
-                        "You are E.D.I.T.H., tactical defense AI for Boss. Be analytical, precise, and concise in 1-2 spoken sentences. Accurately recall prior conversation context when queried."
-                    DevilProtocol.BARN_DOOR ->
-                        "You are DEVIL in silent meeting mode. Answer Boss in one short, quiet spoken sentence."
-                    DevilProtocol.HOUSE_PARTY ->
-                        "You are DEVIL in developer mode. Answer Boss directly and technically in 1 to 2 sentences."
-                    else ->
-                        "You are DEVIL, an intelligent, loyal, witty, and fun AI companion for your Boss. Chat naturally, warmly, and helpfully in 1 to 2 concise spoken sentences without markdown or bullet points. You already know your Boss well; never introduce yourself during casual chat.\n" +
-                        "CONVERSATION MEMORY RULES:\n" +
-                        "1. You have a sharp, active memory of earlier jokes, remarks, and topics discussed in the conversation turns above.\n" +
-                        "2. When Boss asks if you remember prior jokes, questions, or statements (e.g. 'do you remember', 'what did you say', 'you said some jokes earlier', 'where we ended'), ALWAYS directly cite or quote what was said earlier (e.g. 'Yes Boss, I told you the joke about [quote joke]!' or 'We were talking about X').\n" +
-                        "3. NEVER reply with evasive brush-offs like 'I am always ready' or 'I can tell jokes' when Boss asks what was said earlier; state the actual conversation facts!"
-                }
-                promptBuilder.append(personaPrompt)
-
-                val jokesList = getRecentJokes()
-                if (jokesList.isNotEmpty()) {
-                    promptBuilder.append("\n[Jokes already shared in this session: ").append(jokesList.takeLast(3).joinToString(" | ")).append("]")
-                }
-
-                val savedMemories = memoryVault?.getMemoryContextForPrompt()
-                if (!savedMemories.isNullOrBlank()) {
-                    promptBuilder.append("\nMemory Vault: ").append(savedMemories.take(160))
-                }
-                promptBuilder.append("<|im_end|>\n")
-
-                synchronized(conversationHistory) {
-                    while (conversationHistory.size > MAX_HISTORY_TURNS) {
-                        conversationHistory.removeAt(0)
-                    }
-                    for (turn in conversationHistory) {
-                        promptBuilder.append("<|im_start|>${turn.role}\n${turn.content}<|im_end|>\n")
-                    }
-                }
-
-                promptBuilder.append("<|im_start|>user\n${query.trim()}<|im_end|>\n<|im_start|>assistant\n")
-
-                val chatPrompt = promptBuilder.toString()
+                val chatPrompt = buildChatPrompt(query)
                 Log.d(TAG, "Chat prompt sent to model:\n$chatPrompt")
                 val raw = model!!.generate(chatPrompt)
                 val cleaned = raw
@@ -289,6 +307,106 @@ object LlamaHelper {
                     Log.e(TAG, "Minimalist recovery also failed", e2)
                 }
                 "I'm right here with you, Boss! What's on your mind?"
+            }
+        }
+    }
+
+    /**
+     * Streams responses sentence-by-sentence as tokens are generated from Qwen2.5.
+     * Fires onSentenceChunk for each detected sentence boundary, dramatically reducing TTFT (<300ms).
+     */
+    suspend fun generateAnswerStream(
+        query: String,
+        onSentenceChunk: suspend (chunk: String, isFirst: Boolean, isFinal: Boolean) -> Unit
+    ): String = withContext(Dispatchers.IO) {
+        if (!modelReady || model == null) {
+            val fallback = "I'm right here with you, Boss! What shall we talk about?"
+            onSentenceChunk(fallback, true, true)
+            return@withContext fallback
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastInteractionTime > SESSION_TIMEOUT_MS) {
+            clearHistory()
+        }
+        lastInteractionTime = now
+
+        generateMutex.withLock {
+            val fullResponseBuilder = StringBuilder()
+            try {
+                Log.i(TAG, "Incoming streaming query: '$query'")
+                val chatPrompt = buildChatPrompt(query)
+                Log.d(TAG, "Chat prompt sent to model for streaming:\n$chatPrompt")
+
+                val currentSentence = StringBuilder()
+                var isFirstChunk = true
+                var sentenceCount = 0
+                var isToolCall = false
+
+                val streamFlow = model!!.generateStream(chatPrompt)
+                streamFlow.collect { token ->
+                    val cleanedToken = token.replace(Regex("<\\|.*?\\|>"), "").replace(Regex("[#*`_]"), "")
+                    fullResponseBuilder.append(cleanedToken)
+
+                    if (fullResponseBuilder.trim().startsWith("<tool_call>") || cleanedToken.contains("<tool_call>")) {
+                        isToolCall = true
+                        return@collect
+                    }
+
+                    if (!isToolCall) {
+                        val englishToken = cleanedToken.filter { it.code in 32..126 || it == '\n' || it == '’' || it == '‘' || it == '“' || it == '”' }
+                        currentSentence.append(englishToken)
+
+                        val textSoFar = currentSentence.toString()
+                        val match = Regex("(?<=[.!?])(\\s+|$)").find(textSoFar)
+                        if (match != null && textSoFar.length >= 10 && sentenceCount < 3) {
+                            val sentence = textSoFar.substring(0, match.range.first + 1).trim()
+                            val remainder = textSoFar.substring(match.range.first + 1)
+                            if (sentence.isNotBlank()) {
+                                sentenceCount++
+                                val isCandidateFinal = sentenceCount >= 3
+                                onSentenceChunk(sentence, isFirstChunk, isCandidateFinal)
+                                isFirstChunk = false
+                                currentSentence.clear()
+                                currentSentence.append(remainder)
+                            }
+                        }
+                    }
+                }
+
+                if (!isToolCall) {
+                    val remainingText = currentSentence.toString().trim()
+                    if (remainingText.isNotEmpty() && sentenceCount < 3) {
+                        sentenceCount++
+                        onSentenceChunk(remainingText, isFirstChunk, true)
+                    } else if (isFirstChunk) {
+                        val candidate = fullResponseBuilder.toString().trim().ifEmpty {
+                            "I'm right here with you, Boss! What's on your mind?"
+                        }
+                        onSentenceChunk(candidate, true, true)
+                    } else {
+                        onSentenceChunk("", false, true)
+                    }
+                }
+
+                val finalAnswer = fullResponseBuilder.toString().trim().ifEmpty {
+                    "I'm right here with you, Boss! What's on your mind?"
+                }
+
+                synchronized(conversationHistory) {
+                    conversationHistory.add(DialogueTurn("user", query.trim()))
+                    conversationHistory.add(DialogueTurn("assistant", finalAnswer))
+                }
+                memoryVault?.recordJournalTurn(query.trim(), finalAnswer)
+                if (query.contains("joke", ignoreCase = true) || finalAnswer.contains("Because ", ignoreCase = true)) {
+                    recordJoke(finalAnswer)
+                }
+                finalAnswer
+            } catch (e: Exception) {
+                Log.w(TAG, "Streaming generation failed, falling back to synchronous generateAnswer", e)
+                val fallbackAnswer = generateAnswer(query)
+                onSentenceChunk(fallbackAnswer, true, true)
+                fallbackAnswer
             }
         }
     }

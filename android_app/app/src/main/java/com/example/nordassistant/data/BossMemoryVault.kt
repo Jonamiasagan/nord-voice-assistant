@@ -173,10 +173,106 @@ class BossMemoryVault private constructor(context: Context) :
                     }
                 }
             }
+
+            // 3. Pure-Kotlin Semantic & Fuzzy N-Gram Matcher
+            val allMemories = getAllStoredMemories()
+            if (allMemories.isNotEmpty()) {
+                val stopWords = setOf("the", "my", "what", "is", "about", "did", "you", "remember", "where", "tell", "me", "know", "does")
+                val queryTokens = clean.split(" ", "_", "-").map { it.trim() }.filter { it.length > 1 && it !in stopWords }.toSet()
+                val expandedTokens = expandWithSynonyms(queryTokens)
+
+                var bestMatch: MemoryItem? = null
+                var bestScore = 0.0
+
+                for (item in allMemories) {
+                    val keyTokens = item.key.lowercase().split(" ", "_", "-").map { it.trim() }.toSet()
+                    val factTokens = item.fact.lowercase().split(" ", "_", "-").map { it.trim() }.toSet()
+                    val allItemTokens = keyTokens + factTokens
+
+                    // A: Token & Synonym Overlap
+                    val overlap = expandedTokens.intersect(allItemTokens).size
+                    val tokenScore = if (expandedTokens.isNotEmpty()) overlap.toDouble() / expandedTokens.size else 0.0
+
+                    // B: Key N-Gram Similarity
+                    val ngramScore = computeNGramSimilarity(clean, item.key.lowercase())
+
+                    // Combined Weighted Score
+                    val combinedScore = (tokenScore * 0.65) + (ngramScore * 0.35)
+
+                    if (combinedScore > bestScore && combinedScore >= 0.35) {
+                        bestScore = combinedScore
+                        bestMatch = item
+                    }
+                }
+
+                if (bestMatch != null) {
+                    Log.i(TAG, "🧠 Semantic memory hit: '$clean' -> '${bestMatch.key}' (score: $bestScore)")
+                    incrementAccess(bestMatch.key)
+                    return bestMatch
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error recalling memory: $query", e)
         }
         return null
+    }
+
+    private val synonymGroups = listOf(
+        setOf("car", "vehicle", "automobile", "bike", "scooter", "motorcycle", "ride"),
+        setOf("park", "parking", "parked", "slot", "spot", "garage", "basement"),
+        setOf("password", "pass", "pin", "credential", "code", "key", "secret", "login"),
+        setOf("phone", "mobile", "number", "cell", "contact", "sim"),
+        setOf("home", "house", "address", "flat", "apartment", "residence"),
+        setOf("office", "work", "desk", "cabin", "building", "floor"),
+        setOf("laptop", "computer", "pc", "mac", "macbook", "machine"),
+        setOf("wifi", "network", "internet", "hotspot", "connection"),
+        setOf("wife", "spouse", "partner"),
+        setOf("mother", "mom", "amma"),
+        setOf("father", "dad", "appa"),
+        setOf("brother", "bro"),
+        setOf("friend", "colleague", "buddy")
+    )
+
+    private fun expandWithSynonyms(tokens: Set<String>): Set<String> {
+        val expanded = tokens.toMutableSet()
+        for (token in tokens) {
+            for (group in synonymGroups) {
+                if (group.contains(token)) {
+                    expanded.addAll(group)
+                }
+            }
+        }
+        return expanded
+    }
+
+    private fun computeNGramSimilarity(s1: String, s2: String, n: Int = 3): Double {
+        if (s1.length < n || s2.length < n) {
+            return if (s1.contains(s2) || s2.contains(s1)) 0.7 else 0.0
+        }
+        val ngrams1 = (0..s1.length - n).map { s1.substring(it, it + n) }.toSet()
+        val ngrams2 = (0..s2.length - n).map { s2.substring(it, it + n) }.toSet()
+        val intersection = ngrams1.intersect(ngrams2).size
+        val union = ngrams1.union(ngrams2).size
+        return if (union > 0) intersection.toDouble() / union.toDouble() else 0.0
+    }
+
+    fun getAllStoredMemories(): List<MemoryItem> {
+        val list = mutableListOf<MemoryItem>()
+        try {
+            val cursor = readableDatabase.query(
+                TABLE_MEMORIES,
+                arrayOf(COL_KEY, COL_FACT, COL_CATEGORY, COL_UPDATED_AT),
+                null, null, null, null, "$COL_ACCESS_COUNT DESC", "100"
+            )
+            cursor.use {
+                while (it.moveToNext()) {
+                    list.add(MemoryItem(it.getString(0), it.getString(1), it.getString(2), it.getLong(3)))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching stored memories", e)
+        }
+        return list
     }
 
     private fun incrementAccess(key: String) {
