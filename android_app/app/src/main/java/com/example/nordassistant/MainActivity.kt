@@ -805,6 +805,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val digits = spoken.replace(Regex("[^0-9]"), "")
         if (digits.contains("82483739")) return "Akka"
 
+        if (lower in setOf("me", "myself", "my self", "me myself", "you", "thambi", "thambi1", "self", "myself me", "to myself", "to me") ||
+            lower.contains("myself") || (lower.startsWith("me ") && !lower.contains("meeting"))) {
+            return "You"
+        }
+
         return when (lower) {
             "uma", "u j" -> "UJ"
             "moon", "moon cat", "cat", "gayatri" -> "gaytri"
@@ -813,7 +818,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             "mom", "mother" -> "amma"
             "akka", "sister", "sis" -> "Akka"
             "syam", "syaam", "shyam", "shyaam", "sham", "syam fincare", "shyam fincare" -> "Syam"
-            "me", "myself", "you", "thambi", "thambi1" -> "You"
             else -> spoken
         }
     }
@@ -1505,6 +1509,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val openWhatsAppToContactRegex = Regex(
             "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send|open)?\\s*(?:a\\s+)?whats?app(?:\\s+message)?\\s+to\\s+([a-zA-Z0-9+\\s]{1,25}?)$"
         )
+        val sendWhatsAppContentThenToRegex = Regex(
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send|write|type)\\s+(?:a\\s+)?whats?app(?:\\s+message)?\\s+(.+?)\\s+to\\s+([a-zA-Z0-9+\\s]{1,25}?)$"
+        )
         val sendMsgContentFirstRegex = Regex(
             "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send|write|type)\\s+(?:a\\s+)?(.+?)\\s+(?:whats?app\\s+)?message\\s+to\\s+([a-zA-Z0-9+\\s]{1,25}?)$"
         )
@@ -1776,6 +1783,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val match = openWhatsAppToContactRegex.find(trimmed)!!
                 val targetName = match.groupValues[1].trim()
                 sendWhatsAppTextMessage(normalizeContactName(targetName), "")
+            }
+            sendWhatsAppContentThenToRegex.find(trimmed) != null -> {
+                val match = sendWhatsAppContentThenToRegex.find(trimmed)!!
+                val message = match.groupValues[1].trim()
+                val targetName = match.groupValues[2].trim()
+                sendWhatsAppTextMessage(normalizeContactName(targetName), message)
             }
             sendWhatsAppRegex.find(trimmed) != null -> {
                 val match = sendWhatsAppRegex.find(trimmed)!!
@@ -2578,14 +2591,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val cleanName = normalizeContactName(name).trim()
         Log.i("MainActivity", "findContactByName: input='$name' -> cleanName='$cleanName'")
 
-        if (cleanName.equals("to", ignoreCase = true) || cleanName.equals("for", ignoreCase = true) || cleanName.isBlank()) {
+        val nonContactWords = setOf("to", "for", "with", "at", "on", "hi", "hello", "hey", "whatsapp", "message", "sms", "text", "voice", "note")
+        if (cleanName.lowercase(Locale.getDefault()) in nonContactWords || cleanName.isBlank()) {
             return null
         }
 
-        // Fast-path: Self contact ("You", "myself", "me")
+        // Fast-path: Self contact ("You", "myself", "me", "me myself", etc.)
         val isYou = cleanName.equals("You", ignoreCase = true) ||
-                    cleanName.equals("myself", ignoreCase = true) ||
-                    cleanName.equals("me", ignoreCase = true)
+                    cleanName.contains("myself", ignoreCase = true) ||
+                    cleanName.equals("me", ignoreCase = true) ||
+                    cleanName.equals("self", ignoreCase = true) ||
+                    cleanName.equals("me myself", ignoreCase = true) ||
+                    cleanName.equals("my self", ignoreCase = true)
         if (isYou) {
             return ContactInfo("You", "7416960570")
         }
@@ -2650,6 +2667,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         val selectionArgs = if (isSyam) {
             arrayOf("%syam%", "%shyam%")
+        } else if (cleanName.length < 3) {
+            arrayOf("$cleanName%")
         } else {
             arrayOf("%$cleanName%")
         }
