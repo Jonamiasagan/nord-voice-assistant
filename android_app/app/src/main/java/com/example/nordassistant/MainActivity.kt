@@ -1285,6 +1285,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             val isValid = embedding.any { it != 0f && !it.isNaN() }
             if (isValid) {
+                try {
+                    val calFile = File(filesDir, "boss_calibration.wav")
+                    VoiceBiometrics.writeWavFile(pcmBytes, calFile)
+                    Log.i("MainActivity", "Saved boss_calibration.wav (${calFile.length()} bytes)")
+                } catch (e: Exception) {
+                    Log.w("MainActivity", "Could not save calibration wav", e)
+                }
                 bossSecurity.saveBossVoiceprint(embedding)
                 securityStatus = "BOSS SECURED (ENROLLED)"
                 speakResponse("Calibration successful! Your master acoustic voiceprint is now locked to DEVIL, Boss.")
@@ -1297,6 +1304,31 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun playRecordedVoice() {
+        val calFile = File(filesDir, "boss_calibration.wav")
+        if (!calFile.exists() || calFile.length() < 100) {
+            speakResponse("Boss, I don't have a saved audio recording of your voice yet. Please say 'calibrate my voice' to record it.")
+            return
+        }
+        speakResponse("Playing back your recorded voice, Boss.")
+        scope.launch(Dispatchers.Main) {
+            delay(2200)
+            try {
+                android.media.MediaPlayer().apply {
+                    setDataSource(calFile.absolutePath)
+                    prepare()
+                    start()
+                    setOnCompletionListener { mp ->
+                        mp.release()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error playing calibration audio", e)
+                speakResponse("Sorry Boss, I encountered an issue playing the recording.")
+            }
+        }
+    }
+
     private fun processCommand(command: String) {
         val trimmed = normalizeSpokenCommand(command)
         Log.i("MainActivity", "COMMAND RECEIVED: '$command' -> TRIMMED: '$trimmed'")
@@ -1306,6 +1338,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         // ── Voice Calibration & Voiceprint Management ──
         if (trimmed.contains(Regex("(?i)\\b(calibrate\\s*(my\\s*)?voice|enroll\\s*(my\\s*)?voice|setup\\s*voiceprint|register\\s*(my\\s*)?voice|record\\s*voiceprint)\\b"))) {
             handleVoiceCalibration()
+            return
+        }
+        if (trimmed.contains(Regex("(?i)\\b(play\\s*(my\\s*)?(voice|recording|calibration)|listen\\s*(to\\s*)?(my\\s*)?(voice|recording|calibration)|hear\\s*(my\\s*)?(voice|recording)|playback\\s*(my\\s*)?voice)\\b"))) {
+            playRecordedVoice()
             return
         }
         if (trimmed.contains(Regex("(?i)\\b(is\\s*(my\\s*)?voice\\s*(calibrated|enrolled|registered)|voice\\s*(calibration|biometric)\\s*status|check\\s*(voice\\s*)?calibration|did\\s*i\\s*calibrate\\s*(my\\s*)?voice)\\b"))) {

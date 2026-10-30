@@ -360,8 +360,9 @@ object LlamaHelper {
                         val textSoFar = currentSentence.toString()
                         val match = Regex("(?<=[.!?])(\\s+|$)").find(textSoFar)
                         if (match != null && textSoFar.length >= 10 && sentenceCount < 3) {
-                            val sentence = textSoFar.substring(0, match.range.first + 1).trim()
-                            val remainder = textSoFar.substring(match.range.first + 1)
+                            val endIdx = (match.range.first + 1).coerceAtMost(textSoFar.length)
+                            val sentence = textSoFar.substring(0, endIdx).trim()
+                            val remainder = if (endIdx < textSoFar.length) textSoFar.substring(endIdx) else ""
                             if (sentence.isNotBlank()) {
                                 sentenceCount++
                                 val isCandidateFinal = sentenceCount >= 3
