@@ -98,6 +98,8 @@ class DevilSentryService : Service() {
     private var isRunning = false
     private var isListening = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val sentryVoiceRecorder = BossVoiceRecorder()
+    private val sentryAudioBuffer = java.io.ByteArrayOutputStream()
 
     // ── Backup Shift Timer (OxygenOS-proof) ──
     // AlarmManager alarms are unreliable on OnePlus/OxygenOS.
@@ -234,6 +236,9 @@ class DevilSentryService : Service() {
 
     private fun destroyRecognizer() {
         try {
+            sentryVoiceRecorder.stopRecording()
+        } catch (_: Exception) {}
+        try {
             speechRecognizer?.stopListening()
             speechRecognizer?.cancel()
             speechRecognizer?.destroy()
@@ -266,6 +271,7 @@ class DevilSentryService : Service() {
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, preferredLocale.toLanguageTag())
+                    putExtra("android.speech.extra.GET_AUDIO", true)
                     if (offlineSpeechSupported) {
                         // Prefer offline recognition if local pack is installed
                         putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
@@ -301,11 +307,24 @@ class DevilSentryService : Service() {
         }, delayMs)
     }
 
-    private fun handleDetectedSpeech(rawText: String) {
+    private fun handleDetectedSpeech(rawText: String, pcmAudio: ByteArray = ByteArray(0)) {
         val text = rawText.trim()
         if (text.isEmpty() || isPausedForConversation) return
 
-        Log.i(TAG, "Sentry heard: '$text'")
+        Log.i(TAG, "Sentry heard: '$text', audioBytes=${pcmAudio.size}")
+
+        // Strict Voice Biometrics Clearance
+        val bossSecurity = BossSecurityManager.getInstance(this@DevilSentryService)
+        if (bossSecurity.isBossVoiceprintValid()) {
+            val auth = bossSecurity.verifySpeaker(pcmAudio, threshold = 0.58f)
+            Log.i(TAG, "Sentry Voice Biometrics: isAuthorized=${auth.isAuthorized}, isBoss=${auth.isBoss}, isGuest=${auth.isGuest}, similarity=${(auth.similarity * 100).toInt()}%")
+            if (!auth.isAuthorized) {
+                Log.w(TAG, "⛔ Sentry Voice Mismatch: ${(auth.similarity * 100).toInt()}% vs threshold 58%. Unauthorized speaker!")
+                com.example.nordassistant.data.DevilVoiceSpeaker.speak(this@DevilSentryService, "You are not my Boss. Access denied.")
+                scheduleRestart(800L)
+                return
+            }
+        }
 
         // 1. Check if Boss revoked Sentry Mode
         if (revokeSentryRegex.containsMatchIn(text) || DevilProtocolManager.isSentryModeRevokeTrigger(text)) {
@@ -313,6 +332,8 @@ class DevilSentryService : Service() {
             val revokeIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                 putExtra("command", "revoke sentry mode")
+                putExtra("EXTRA_VOICE_VERIFIED", true)
+                if (pcmAudio.isNotEmpty()) putExtra("EXTRA_PCM_AUDIO", pcmAudio)
             }
             startActivity(revokeIntent)
             stopSentryMode()
@@ -335,6 +356,8 @@ class DevilSentryService : Service() {
             val switchIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                 putExtra("command", text)
+                putExtra("EXTRA_VOICE_VERIFIED", true)
+                if (pcmAudio.isNotEmpty()) putExtra("EXTRA_PCM_AUDIO", pcmAudio)
             }
             startActivity(switchIntent)
             if (DevilProtocolManager.isBossModeRevocation(text)) {
@@ -360,6 +383,8 @@ class DevilSentryService : Service() {
             val actionIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                 putExtra("command", text)
+                putExtra("EXTRA_VOICE_VERIFIED", true)
+                if (pcmAudio.isNotEmpty()) putExtra("EXTRA_PCM_AUDIO", pcmAudio)
             }
             startActivity(actionIntent)
             return
@@ -387,6 +412,8 @@ class DevilSentryService : Service() {
 
             val wakeIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                putExtra("EXTRA_VOICE_VERIFIED", true)
+                if (pcmAudio.isNotEmpty()) putExtra("EXTRA_PCM_AUDIO", pcmAudio)
                 if (cleaned.length >= 2 && !cleaned.equals("devil", ignoreCase = true) && !cleaned.equals("deil", ignoreCase = true)) {
                     putExtra("command", cleaned)
                 } else {
@@ -424,15 +451,31 @@ class DevilSentryService : Service() {
             Log.d(TAG, "Sentry mic armed and ready")
         }
 
-        override fun onBeginningOfSpeech() {}
+        override fun onBeginningOfSpeech() {
+            sentryAudioBuffer.reset()
+            try {
+                sentryVoiceRecorder.startRecording()
+            } catch (e: Exception) {
+                Log.w(TAG, "Sentry voice recorder start failed", e)
+            }
+        }
         override fun onRmsChanged(rmsdB: Float) {}
-        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onBufferReceived(buffer: ByteArray?) {
+            if (buffer != null && buffer.isNotEmpty()) {
+                synchronized(sentryAudioBuffer) {
+                    sentryAudioBuffer.write(buffer)
+                }
+            }
+        }
         override fun onEndOfSpeech() {
             isListening = false
         }
 
         override fun onError(error: Int) {
             isListening = false
+            try {
+                sentryVoiceRecorder.stopRecording()
+            } catch (_: Exception) {}
             Log.w(TAG, "Sentry recognition error: $error")
             if (isRunning && !isPausedForConversation) {
                 if (error == 13) {
@@ -460,9 +503,39 @@ class DevilSentryService : Service() {
 
         override fun onResults(results: Bundle?) {
             isListening = false
+            val recordedBytes = try {
+                sentryVoiceRecorder.stopRecording()
+            } catch (_: Exception) {
+                ByteArray(0)
+            }
+            val bufferBytes = synchronized(sentryAudioBuffer) { sentryAudioBuffer.toByteArray() }
+            var pcmAudio = if (recordedBytes.isNotEmpty()) recordedBytes else bufferBytes
+
+            if (pcmAudio.size < VoiceBiometrics.FRAME_SIZE * 4) {
+                try {
+                    val audioUri = results?.getParcelable<android.net.Uri>("android.speech.extra.AUDIO_STREAM")
+                        ?: results?.getParcelable<android.net.Uri>("android.speech.extra.GET_AUDIO_STREAM")
+                    if (audioUri != null) {
+                        contentResolver.openInputStream(audioUri)?.use { stream ->
+                            val rawBytes = stream.readBytes()
+                            if (rawBytes.isNotEmpty()) {
+                                pcmAudio = if (rawBytes.size > 44 && rawBytes[0] == 'R'.code.toByte() && rawBytes[1] == 'I'.code.toByte()) {
+                                    rawBytes.copyOfRange(44, rawBytes.size)
+                                } else {
+                                    rawBytes
+                                }
+                                Log.d(TAG, "Retrieved ${pcmAudio.size} pcm bytes from speech audio URI")
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not read audio stream URI", e)
+                }
+            }
+
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             if (!matches.isNullOrEmpty()) {
-                Log.d(TAG, "Sentry onResults matches: $matches")
+                Log.d(TAG, "Sentry onResults matches: $matches, audioBytes=${pcmAudio.size}")
                 var triggered = false
                 for (candidate in matches) {
                     if (wakeWordRegex.containsMatchIn(candidate) || 
@@ -476,7 +549,7 @@ class DevilSentryService : Service() {
                         DevilProtocolManager.isBarnDoorTrigger(candidate) ||
                         DevilProtocolManager.isHousePartyTrigger(candidate) ||
                         DevilProtocolManager.isBabyMonitorTrigger(candidate)) {
-                        handleDetectedSpeech(candidate)
+                        handleDetectedSpeech(candidate, pcmAudio)
                         triggered = true
                         break
                     }
@@ -491,24 +564,10 @@ class DevilSentryService : Service() {
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
+            // Do NOT trigger commands on partial results: audio recording is incomplete and cannot be biometric-verified!
             val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             if (!matches.isNullOrEmpty()) {
-                for (candidate in matches) {
-                    if (wakeWordRegex.containsMatchIn(candidate) || 
-                        isDirectActionTrigger(candidate) ||
-                        revokeSentryRegex.containsMatchIn(candidate) ||
-                        DevilProtocolManager.isSentryModeRevokeTrigger(candidate) ||
-                        DevilProtocolManager.isBossModeRevocation(candidate) ||
-                        DevilProtocolManager.isJarvisTrigger(candidate) ||
-                        DevilProtocolManager.isFridayTrigger(candidate) ||
-                        DevilProtocolManager.isEdithTrigger(candidate) ||
-                        DevilProtocolManager.isBarnDoorTrigger(candidate) ||
-                        DevilProtocolManager.isHousePartyTrigger(candidate) ||
-                        DevilProtocolManager.isBabyMonitorTrigger(candidate)) {
-                        handleDetectedSpeech(candidate)
-                        break
-                    }
-                }
+                Log.v(TAG, "Sentry partial speech heard: ${matches[0]}")
             }
         }
 

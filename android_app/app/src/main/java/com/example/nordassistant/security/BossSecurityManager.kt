@@ -20,6 +20,33 @@ class BossSecurityManager private constructor(context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
+    init {
+        refreshEnrolledVoiceprintFromCalibrationFile(context)
+    }
+
+    fun refreshEnrolledVoiceprintFromCalibrationFile(context: Context) {
+        try {
+            val calFile = java.io.File(context.filesDir, "boss_calibration.wav")
+            if (calFile.exists() && calFile.length() > 44) {
+                val bytes = calFile.readBytes()
+                val pcmBytes = if (bytes.size > 44 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte()) {
+                    bytes.copyOfRange(44, bytes.size)
+                } else {
+                    bytes
+                }
+                if (pcmBytes.size > VoiceBiometrics.FRAME_SIZE * 4) {
+                    val newEmbedding = VoiceBiometrics.extractEmbedding(pcmBytes)
+                    if (newEmbedding.any { it != 0f && !it.isNaN() }) {
+                        saveBossVoiceprint(newEmbedding)
+                        android.util.Log.i("BossSecurityManager", "Successfully refreshed Boss voiceprint from calibration file (${pcmBytes.size} bytes audio) without c0 energy bias!")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("BossSecurityManager", "Could not refresh voiceprint from calibration file", e)
+        }
+    }
+
     var activeGuest: String? = null
         private set
 
@@ -142,15 +169,33 @@ class BossSecurityManager private constructor(context: Context) {
             )
         }
 
-        if (pcmBytes.isEmpty()) {
-            // If audio wasn't captured, check guest status
+        if (pcmBytes.size < VoiceBiometrics.FRAME_SIZE * 4) {
+            // Check guest status
             val guestActive = isGuestSessionActive()
+            if (guestActive) {
+                return VoiceAuthResult(
+                    isAuthorized = true,
+                    similarity = 0.80f,
+                    isBoss = false,
+                    isGuest = true,
+                    reason = "Authorized guest session for $activeGuest."
+                )
+            }
+            if (isStrictBossMode) {
+                return VoiceAuthResult(
+                    isAuthorized = false,
+                    similarity = 0.0f,
+                    isBoss = false,
+                    isGuest = false,
+                    reason = "Acoustic verification failed: audio stream unavailable or insufficient audio (${pcmBytes.size} bytes). You are not my Boss."
+                )
+            }
             return VoiceAuthResult(
                 isAuthorized = true,
                 similarity = 0.80f,
-                isBoss = !guestActive,
-                isGuest = guestActive,
-                reason = if (guestActive) "Authorized guest session." else "Default device user clearance."
+                isBoss = true,
+                isGuest = false,
+                reason = "Default device user clearance (audio stream unavailable)."
             )
         }
 

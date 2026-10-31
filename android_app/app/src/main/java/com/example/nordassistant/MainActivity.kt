@@ -236,10 +236,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val isWake = intent?.getBooleanExtra("EXTRA_WAKE_DEVIL", false) ?: false
         val cmd = intent?.getStringExtra("query") ?: intent?.getStringExtra("command")
         val action = intent?.getStringExtra("EXTRA_ACTION")
+        val isVoiceVerified = intent?.getBooleanExtra("EXTRA_VOICE_VERIFIED", false) ?: false
+        val pcmAudio = intent?.getByteArrayExtra("EXTRA_PCM_AUDIO")
         intent?.removeExtra("EXTRA_WAKE_DEVIL")
         intent?.removeExtra("query")
         intent?.removeExtra("command")
         intent?.removeExtra("EXTRA_ACTION")
+        intent?.removeExtra("EXTRA_VOICE_VERIFIED")
+        intent?.removeExtra("EXTRA_PCM_AUDIO")
 
         scope.launch(Dispatchers.Main) {
             if (!::tts.isInitialized) {
@@ -249,7 +253,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 handleDarwinboxAttendance(DevilAccessibilityService.DarwinboxAction.CHECK_OUT)
             } else if (!cmd.isNullOrBlank()) {
                 refreshConversationSession()
-                processCommand(cmd)
+                processCommand(cmd, pcmAudio, isVoiceVerified)
             } else if (isWake) {
                 refreshConversationSession()
                 speakResponse(getPresenceAndListeningResponse(), continueConversation = true)
@@ -1401,9 +1405,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun processCommand(command: String, pcmAudio: ByteArray? = null) {
+    private fun processCommand(command: String, pcmAudio: ByteArray? = null, isVoiceVerified: Boolean = false) {
         val trimmed = normalizeSpokenCommand(command)
-        Log.i("MainActivity", "COMMAND RECEIVED: '$command' -> TRIMMED: '$trimmed'")
+        Log.i("MainActivity", "COMMAND RECEIVED: '$command' -> TRIMMED: '$trimmed' (voiceVerified=$isVoiceVerified, audioBytes=${pcmAudio?.size ?: 0})")
         lastUserCommandForTurn = trimmed
         isHandlingQueryBackend = false
 
@@ -1418,8 +1422,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         // ── Voice Biometrics & Boss Clearance Enforcement ──
-        if (bossSecurity.isBossVoiceprintValid() && pcmAudio != null && pcmAudio.size >= VoiceBiometrics.FRAME_SIZE * 4) {
-            val auth = bossSecurity.verifySpeaker(pcmAudio, threshold = 0.58f)
+        if (!isVoiceVerified && bossSecurity.isBossVoiceprintValid()) {
+            val audioBytes = pcmAudio ?: ByteArray(0)
+            val auth = bossSecurity.verifySpeaker(audioBytes, threshold = 0.58f)
             Log.i("MainActivity", "Voice Biometrics Verification: authorized=${auth.isAuthorized}, isBoss=${auth.isBoss}, isGuest=${auth.isGuest}, similarity=${(auth.similarity * 100).toInt()}%, reason=${auth.reason}")
 
             if (!auth.isAuthorized) {

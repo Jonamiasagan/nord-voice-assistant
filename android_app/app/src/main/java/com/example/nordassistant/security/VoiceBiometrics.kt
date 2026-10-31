@@ -220,83 +220,94 @@ object VoiceBiometrics {
             return FloatArray(EMBEDDING_DIM)
         }
 
-        // 4. Aggregate frame statistics into a fixed 64-dimensional feature vector
+        // 4. Aggregate frame statistics into a 64-dimensional speaker biometric vector.
+        // CRITICAL FIX: We EXCLUDE mfcc[0] (c0 is the overall frame energy/gain DC component).
+        // If c0 is included, its massive negative value dominates 99% of the L2-normalized vector,
+        // causing ANY speaker or AI voice to match with 95%+ false similarity.
+        // We use c1..c12 (spectral timbre and vocal tract shape) + pitch F0 + spectral dynamics.
         val embedding = FloatArray(EMBEDDING_DIM)
+        val validMfccCount = NUM_MFCC - 1 // 12 coefficients (c1 to c12)
 
-        // Slots 0-12: MFCC Mean
-        for (i in 0 until NUM_MFCC) {
+        // Slots 0-11: MFCC Mean (c1..c12)
+        for (i in 0 until validMfccCount) {
+            val coefIdx = i + 1
             var sum = 0f
-            for (mfcc in frameMfccs) sum += mfcc[i]
+            for (mfcc in frameMfccs) sum += mfcc[coefIdx]
             embedding[i] = sum / frameMfccs.size
         }
 
-        // Slots 13-25: MFCC Standard Deviation
-        for (i in 0 until NUM_MFCC) {
+        // Slots 12-23: MFCC Standard Deviation (c1..c12)
+        for (i in 0 until validMfccCount) {
+            val coefIdx = i + 1
             val mean = embedding[i]
             var sumSq = 0f
             for (mfcc in frameMfccs) {
-                val diff = mfcc[i] - mean
+                val diff = mfcc[coefIdx] - mean
                 sumSq += diff * diff
             }
-            embedding[13 + i] = sqrt(sumSq / frameMfccs.size)
+            embedding[12 + i] = sqrt(sumSq / frameMfccs.size)
         }
 
-        // Slots 26-38: MFCC Delta (Trajectory dynamics)
+        // Slots 24-35: MFCC Delta Mean (c1..c12 trajectory dynamics)
         if (frameMfccs.size > 2) {
-            for (i in 0 until NUM_MFCC) {
+            for (i in 0 until validMfccCount) {
+                val coefIdx = i + 1
                 var deltaSum = 0f
                 for (t in 1 until frameMfccs.size - 1) {
-                    deltaSum += (frameMfccs[t + 1][i] - frameMfccs[t - 1][i]) / 2f
+                    deltaSum += (frameMfccs[t + 1][coefIdx] - frameMfccs[t - 1][coefIdx]) / 2f
                 }
-                embedding[26 + i] = deltaSum / (frameMfccs.size - 2)
+                embedding[24 + i] = deltaSum / (frameMfccs.size - 2)
             }
         }
 
-        // Slots 39-51: Delta Standard Deviation
+        // Slots 36-47: MFCC Delta Standard Deviation (c1..c12)
         if (frameMfccs.size > 2) {
-            for (i in 0 until NUM_MFCC) {
-                val deltaMean = embedding[26 + i]
+            for (i in 0 until validMfccCount) {
+                val coefIdx = i + 1
+                val deltaMean = embedding[24 + i]
                 var sumSq = 0f
                 for (t in 1 until frameMfccs.size - 1) {
-                    val d = (frameMfccs[t + 1][i] - frameMfccs[t - 1][i]) / 2f
+                    val d = (frameMfccs[t + 1][coefIdx] - frameMfccs[t - 1][coefIdx]) / 2f
                     val diff = d - deltaMean
                     sumSq += diff * diff
                 }
-                embedding[39 + i] = sqrt(sumSq / (frameMfccs.size - 2))
+                embedding[36 + i] = sqrt(sumSq / (frameMfccs.size - 2))
             }
         }
 
-        // Slots 52-53: Pitch (F0) Mean and Std Dev
+        // Slots 48-51: Pitch (F0 fundamental frequency) Mean, Std Dev, Min, Max
         if (framePitches.isNotEmpty()) {
             val pitchMean = framePitches.average().toFloat()
             var pitchVar = 0f
             for (p in framePitches) pitchVar += (p - pitchMean) * (p - pitchMean)
-            embedding[52] = pitchMean / 300f // normalized
-            embedding[53] = sqrt(pitchVar / framePitches.size) / 100f
+            embedding[48] = pitchMean / 200f
+            embedding[49] = sqrt(pitchVar / framePitches.size) / 50f
+            embedding[50] = (framePitches.minOrNull() ?: pitchMean) / 200f
+            embedding[51] = (framePitches.maxOrNull() ?: pitchMean) / 200f
         }
 
-        // Slots 54-55: Spectral Centroid Mean and Std Dev
+        // Slots 52-55: Spectral Centroid & Spectral Rolloff
         if (frameCentroids.isNotEmpty()) {
             val centMean = frameCentroids.average().toFloat()
-            embedding[54] = centMean / 4000f
             var centVar = 0f
             for (c in frameCentroids) centVar += (c - centMean) * (c - centMean)
-            embedding[55] = sqrt(centVar / frameCentroids.size) / 2000f
+            embedding[52] = centMean / 3000f
+            embedding[53] = sqrt(centVar / frameCentroids.size) / 1500f
         }
 
-        // Slots 56-57: Spectral Rolloff Mean and Std Dev
         if (frameRolloffs.isNotEmpty()) {
             val rollMean = frameRolloffs.average().toFloat()
-            embedding[56] = rollMean / 6000f
             var rollVar = 0f
             for (r in frameRolloffs) rollVar += (r - rollMean) * (r - rollMean)
-            embedding[57] = sqrt(rollVar / frameRolloffs.size) / 3000f
+            embedding[54] = rollMean / 5000f
+            embedding[55] = sqrt(rollVar / frameRolloffs.size) / 2500f
         }
 
-        // Slots 58-63: Energy dynamics & frame stats
-        embedding[58] = (frameMfccs.size.toFloat() / numFrames).coerceIn(0f, 1f) // Voicing ratio
+        // Slots 56-57: Voicing ratio & Energy ratio
+        embedding[56] = (frameMfccs.size.toFloat() / numFrames).coerceIn(0f, 1f)
+        embedding[57] = (framePitches.size.toFloat() / max(1, frameMfccs.size)).coerceIn(0f, 1f)
 
-        // 5. L2-Normalize the final embedding vector
+        // 5. L2-Normalize the final 64-dimensional feature vector
         var normSq = 0f
         for (v in embedding) normSq += v * v
         val norm = sqrt(normSq)
@@ -493,8 +504,8 @@ class BossVoiceRecorder {
         if (!isRecording) return ByteArray(0)
         isRecording = false
         try {
-            recordingThread?.join(200)
             audioRecord?.stop()
+            recordingThread?.join(300)
             audioRecord?.release()
             audioRecord = null
         } catch (e: Exception) {
