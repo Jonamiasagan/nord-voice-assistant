@@ -31,9 +31,11 @@ object DarwinboxShiftTracker {
     const val SHIFT_DURATION_MS = 9 * 60 * 60 * 1000L          // 9 Hours
     const val OVERDUE_ALERT_DELAY_MS = 10 * 60 * 1000L        // 10 Minutes grace period
     const val ALARM_REQUEST_CODE = 9002
+    const val SHIFT_COMPLETE_REQUEST_CODE = 9006
     const val DAILY_CHECK_REQUEST_CODE = 9010
     const val ACTION_DAILY_1030_AM_CHECK = "com.example.nordassistant.ACTION_DAILY_1030_AM_CHECK"
     const val ACTION_ALARM_OVERDUE = "com.example.nordassistant.ACTION_DARWINBOX_OVERDUE"
+    const val ACTION_ALARM_SHIFT_COMPLETE = "com.example.nordassistant.ACTION_DARWINBOX_COMPLETE"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -73,6 +75,10 @@ object DarwinboxShiftTracker {
             .putString(KEY_SHIFT_DATE, today)
             .apply()
 
+        // 1. Schedule exact 9-hour shift complete alarm (spoken announcement + notification)
+        scheduleShiftCompleteAlarm(context, targetCheckout)
+
+        // 2. Schedule 9h + 10m overdue checkout alarm (spoken alert + heads-up alert)
         scheduleCheckoutAlarm(context, alertTime)
 
         // Arm backup timer inside the foreground service (OxygenOS-proof)
@@ -345,7 +351,34 @@ object DarwinboxShiftTracker {
         return recordCheckIn(context, cal.timeInMillis)
     }
 
+    private fun scheduleShiftCompleteAlarm(context: Context, triggerAtMs: Long) {
+        if (triggerAtMs <= System.currentTimeMillis()) return
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val intent = Intent(context, DarwinboxAlarmReceiver::class.java).apply {
+            action = ACTION_ALARM_SHIFT_COMPLETE
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            SHIFT_COMPLETE_REQUEST_CODE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMs, pendingIntent)
+            } else {
+                alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMs, pendingIntent)
+            }
+            Log.i(TAG, "⏰ Exact 9-hour shift complete alarm scheduled for: ${formatTime(triggerAtMs)}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not set exact shift complete alarm, falling back to standard alarm", e)
+            alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMs, pendingIntent)
+        }
+    }
+
     private fun scheduleCheckoutAlarm(context: Context, triggerAtMs: Long) {
+        if (triggerAtMs <= System.currentTimeMillis()) return
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val intent = Intent(context, DarwinboxAlarmReceiver::class.java).apply {
             action = ACTION_ALARM_OVERDUE
@@ -417,8 +450,14 @@ object DarwinboxShiftTracker {
     fun rescheduleAlarmsIfActive(context: Context) {
         if (isCheckedInToday(context) && !isCheckedOutToday(context)) {
             val prefs = getPrefs(context)
+            val now = System.currentTimeMillis()
+            val targetCheckoutMs = prefs.getLong(KEY_TARGET_CHECKOUT_MS, 0L)
             val alertMs = prefs.getLong(KEY_ALERT_MS, 0L)
-            if (alertMs > System.currentTimeMillis()) {
+
+            if (targetCheckoutMs > now) {
+                scheduleShiftCompleteAlarm(context, targetCheckoutMs)
+            }
+            if (alertMs > now) {
                 scheduleCheckoutAlarm(context, alertMs)
             }
         }
@@ -427,16 +466,31 @@ object DarwinboxShiftTracker {
 
     fun cancelCheckoutAlarm(context: Context) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        val intent = Intent(context, DarwinboxAlarmReceiver::class.java).apply {
+
+        // 1. Cancel Overdue Alarm
+        val overdueIntent = Intent(context, DarwinboxAlarmReceiver::class.java).apply {
             action = ACTION_ALARM_OVERDUE
         }
-        val pendingIntent = PendingIntent.getBroadcast(
+        val pendingOverdue = PendingIntent.getBroadcast(
             context,
             ALARM_REQUEST_CODE,
-            intent,
+            overdueIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        alarmManager.cancel(pendingIntent)
-        Log.i(TAG, "Checkout alarm canceled.")
+        alarmManager.cancel(pendingOverdue)
+
+        // 2. Cancel Shift Complete Alarm
+        val completeIntent = Intent(context, DarwinboxAlarmReceiver::class.java).apply {
+            action = ACTION_ALARM_SHIFT_COMPLETE
+        }
+        val pendingComplete = PendingIntent.getBroadcast(
+            context,
+            SHIFT_COMPLETE_REQUEST_CODE,
+            completeIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        alarmManager.cancel(pendingComplete)
+
+        Log.i(TAG, "Both 9-hour shift complete and overdue alarms canceled.")
     }
 }

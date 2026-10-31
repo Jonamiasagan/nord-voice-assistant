@@ -2079,7 +2079,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val info = DarwinboxShiftTracker.recordManualCheckInTime(this, trimmed)
                 if (info != null) {
                     speakResponse(
-                        "Understood Boss! Logged your check-in at ${info.checkInTimeStr}. Your 9-hour shift completes at ${info.checkoutTimeStr}. I will give you an alert at ${info.alertTimeStr} if you haven't checked out.",
+                        "Understood Boss! Logged your check-in at ${info.checkInTimeStr}. Your 9-hour shift completes at ${info.checkoutTimeStr}. I will announce out loud when your 9-hour shift is completed and when it's time to check out.",
                         continueConversation = true
                     )
                 } else {
@@ -2173,7 +2173,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         try {
             if (action == DevilAccessibilityService.DarwinboxAction.CHECK_IN) {
                 val info = DarwinboxShiftTracker.recordCheckIn(this)
-                speakResponse("Opening Darwinbox and clocking you in, Boss! Shift check-in logged at ${info.checkInTimeStr}. Your 9-hour shift completes at ${info.checkoutTimeStr}. I will give you an alert at ${info.alertTimeStr} if you haven't checked out.")
+                speakResponse("Opening Darwinbox and clocking you in, Boss! Shift check-in logged at ${info.checkInTimeStr}. Your 9-hour shift completes at ${info.checkoutTimeStr}. I will announce out loud when your 9-hour shift is completed and when it's time to check out.")
             } else {
                 val checkoutStr = DarwinboxShiftTracker.recordCheckOut(this)
                 val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager

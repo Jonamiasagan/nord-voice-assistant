@@ -100,11 +100,12 @@
 
         <receiver
             android:name=".data.DarwinboxAlarmReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="com.example.nordassistant.ACTION_DAILY_1030_AM_CHECK" />
                 <action android:name="com.example.nordassistant.ACTION_DARWINBOX_OVERDUE" />
+                <action android:name="com.example.nordassistant.ACTION_DARWINBOX_COMPLETE" />
             </intent-filter>
         </receiver>
         <provider

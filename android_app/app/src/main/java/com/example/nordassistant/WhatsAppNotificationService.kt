@@ -55,6 +55,15 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
         private var callAnnounceCount = 0
         private var callAnnounceStartTime = 0L
 
+        fun isReady(): Boolean = instance != null && isTtsReady && callTts != null
+
+        fun speakOutLoud(phrase: String) {
+            instance?.let { srv ->
+                srv.ensureAudibleVolume()
+                srv.speakCallPhrase(phrase)
+            }
+        }
+
         // Spoken messages cache to ensure DEVIL NEVER repeats any message once spoken
         private val spokenMessageKeys = mutableSetOf<String>()
 

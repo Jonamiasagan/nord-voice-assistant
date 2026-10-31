@@ -13,8 +13,12 @@ import androidx.core.app.NotificationCompat
 import com.example.nordassistant.MainActivity
 
 /**
- * BroadcastReceiver triggered by AlarmManager 9 hours + 10 minutes after Darwinbox check-in.
- * Wakes the device and posts a high-priority heads-up alert if the user has not clocked out.
+ * BroadcastReceiver triggered by AlarmManager:
+ * 1. Exactly at 9 hours after check-in (shift completed) -> Announces verbally out loud & posts notification.
+ * 2. 9 hours + 10 minutes after check-in (overdue grace period) -> Announces verbally out loud & posts urgent notification.
+ * 3. Daily at 10:30 AM on working days -> Arms default shift if not already clocked in.
+ *
+ * Spoken voice output is guaranteed via DevilVoiceSpeaker even if the phone screen is OFF or locked.
  */
 class DarwinboxAlarmReceiver : BroadcastReceiver() {
 
@@ -23,6 +27,7 @@ class DarwinboxAlarmReceiver : BroadcastReceiver() {
         const val CHANNEL_ID = "devil_darwinbox_shift_alerts"
         const val NOTIFICATION_ID = 9003
         const val ACTION_ALARM_OVERDUE = "com.example.nordassistant.ACTION_DARWINBOX_OVERDUE"
+        const val ACTION_ALARM_COMPLETE = "com.example.nordassistant.ACTION_DARWINBOX_COMPLETE"
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
@@ -39,12 +44,52 @@ class DarwinboxAlarmReceiver : BroadcastReceiver() {
                 handleDaily1030AmCheck(context)
                 return
             }
+            DarwinboxShiftTracker.ACTION_ALARM_SHIFT_COMPLETE,
+            ACTION_ALARM_COMPLETE -> {
+                handleShiftCompleteAlarm(context)
+                return
+            }
+            DarwinboxShiftTracker.ACTION_ALARM_OVERDUE,
+            ACTION_ALARM_OVERDUE -> {
+                handleOvertimeAlarm(context)
+                return
+            }
+            else -> {
+                Log.i(TAG, "Unspecified alarm action fallback: $action. Handling as shift complete.")
+                handleShiftCompleteAlarm(context)
+                return
+            }
+        }
+    }
+
+    private fun handleShiftCompleteAlarm(context: Context) {
+        Log.i(TAG, "⏰ 9-Hour Darwinbox shift complete alarm triggered!")
+
+        // If user already checked out, suppress alert
+        if (DarwinboxShiftTracker.isCheckedOutToday(context)) {
+            Log.i(TAG, "User has already checked out today. Shift complete alert suppressed.")
+            return
         }
 
-        // Overtime 9h + 10m checkout alarm handling
+        // Verify that a check-in was indeed recorded for today
+        if (!DarwinboxShiftTracker.isCheckedInToday(context)) {
+            Log.w(TAG, "No check-in recorded today. Alarm suppressed.")
+            return
+        }
+
+        // 1. Speak out loud!
+        val speech = "Boss, your 9-hour shift is completed! It is time to check out on Darwinbox."
+        Log.i(TAG, "🗣️ DEVIL Speaking out loud: $speech")
+        DevilVoiceSpeaker.speak(context, speech)
+
+        // 2. Post high-priority notification with Clock Out action button
+        postShiftCompleteNotification(context)
+    }
+
+    private fun handleOvertimeAlarm(context: Context) {
         Log.i(TAG, "🚨 Darwinbox overtime checkout alarm triggered!")
 
-        // If user already checked out, cancel notification and return
+        // If user already checked out, suppress alert
         if (DarwinboxShiftTracker.isCheckedOutToday(context)) {
             Log.i(TAG, "User has already checked out today. Overdue alert suppressed.")
             return
@@ -56,6 +101,12 @@ class DarwinboxAlarmReceiver : BroadcastReceiver() {
             return
         }
 
+        // 1. Speak out loud!
+        val speech = "Boss, your 9-hour shift completed 10 minutes ago and you haven't checked out yet! Please clock out on Darwinbox."
+        Log.i(TAG, "🗣️ DEVIL Speaking out loud: $speech")
+        DevilVoiceSpeaker.speak(context, speech)
+
+        // 2. Post high-priority overtime notification with Clock Out action button
         postOvertimeNotification(context)
     }
 
@@ -88,18 +139,7 @@ class DarwinboxAlarmReceiver : BroadcastReceiver() {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             ?: return
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Darwinbox Shift & Attendance Alerts",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Critical alerts when 9-hour shift completes and Darwinbox checkout is overdue"
-                enableVibration(true)
-                setShowBadge(true)
-            }
-            notificationManager.createNotificationChannel(channel)
-        }
+        createNotificationChannel(notificationManager)
 
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -132,11 +172,7 @@ class DarwinboxAlarmReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun postOvertimeNotification(context: Context) {
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            ?: return
-
-        // 1. Create high-importance notification channel with sound & vibration
+    private fun createNotificationChannel(notificationManager: NotificationManager) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
@@ -152,8 +188,15 @@ class DarwinboxAlarmReceiver : BroadcastReceiver() {
             }
             notificationManager.createNotificationChannel(channel)
         }
+    }
 
-        // 2. Action: Clock Out Now (Launches MainActivity with checkout command)
+    private fun postShiftCompleteNotification(context: Context) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return
+
+        createNotificationChannel(notificationManager)
+
+        // Action: Clock Out Now (Launches MainActivity with checkout command)
         val clockOutIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("command", "check out")
@@ -166,7 +209,64 @@ class DarwinboxAlarmReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 3. Tap Notification: Open MainActivity
+        // Tap Notification: Open MainActivity
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("command", "shift status")
+        }
+        val pendingOpen = PendingIntent.getActivity(
+            context,
+            9005,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val alertMessage = "Boss, your 9-hour shift is completed! It's time to check out on Darwinbox."
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("DEVIL // ⏰ 9-HOUR SHIFT COMPLETE")
+            .setContentText("Shift complete! It's time to check out on Darwinbox.")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(alertMessage))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setFullScreenIntent(pendingOpen, false)
+            .setAutoCancel(true)
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+            .setVibrate(longArrayOf(0, 500, 250, 500))
+            .setContentIntent(pendingOpen)
+            .addAction(android.R.drawable.ic_menu_send, "Clock Out Now", pendingClockOut)
+            .build()
+
+        try {
+            notificationManager.notify(NOTIFICATION_ID, notification)
+            Log.i(TAG, "📢 Shift complete notification posted successfully (ID: $NOTIFICATION_ID)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to post shift complete notification", e)
+        }
+    }
+
+    private fun postOvertimeNotification(context: Context) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return
+
+        createNotificationChannel(notificationManager)
+
+        // Action: Clock Out Now (Launches MainActivity with checkout command)
+        val clockOutIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("command", "check out")
+            putExtra("EXTRA_ACTION", "DARWINBOX_CHECK_OUT")
+        }
+        val pendingClockOut = PendingIntent.getActivity(
+            context,
+            9004,
+            clockOutIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Tap Notification: Open MainActivity
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("command", "shift status")
@@ -182,12 +282,13 @@ class DarwinboxAlarmReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("DEVIL // ⏰ 9-HOUR SHIFT COMPLETE")
+            .setContentTitle("DEVIL // 🚨 DARWINBOX CHECKOUT OVERDUE")
             .setContentText("Shift ended 10 mins ago! Darwinbox checkout pending.")
             .setStyle(NotificationCompat.BigTextStyle().bigText(alertMessage))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setFullScreenIntent(pendingOpen, false)
             .setAutoCancel(true)
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
             .setVibrate(longArrayOf(0, 500, 250, 500, 250, 500))

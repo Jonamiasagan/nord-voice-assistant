@@ -105,6 +105,7 @@ class DevilSentryService : Service() {
     // and is immune to battery optimization killing.
     private val shiftTimerHandler = Handler(Looper.getMainLooper())
     private var shiftTimerRunnable: Runnable? = null
+    private var shiftCompleteRunnable: Runnable? = null
 
     private val wakeWordRegex = Regex(
         "(?i)\\b(?:" +
@@ -542,45 +543,71 @@ class DevilSentryService : Service() {
             return
         }
 
-        val alertMs = prefs.getLong("alert_timestamp", 0L)
         val now = System.currentTimeMillis()
-        if (alertMs <= now) {
-            Log.d(TAG, "Backup shift timer: Alert time already passed. Standing down.")
-            return
-        }
+        val targetMs = prefs.getLong("target_checkout_ms", 0L)
+        val alertMs = prefs.getLong("alert_timestamp", 0L)
 
-        val delayMs = alertMs - now
-        val alertTimeStr = java.text.SimpleDateFormat("h:mm a", Locale.getDefault()).format(java.util.Date(alertMs))
-        Log.i(TAG, "🛡️⏰ Backup shift timer ARMED: will fire in ${delayMs / 60000}min at $alertTimeStr")
+        // 1. Arm exact 9-hour shift complete backup
+        if (targetMs > now) {
+            val delayCompleteMs = targetMs - now
+            val completeTimeStr = java.text.SimpleDateFormat("h:mm a", Locale.getDefault()).format(java.util.Date(targetMs))
+            Log.i(TAG, "🛡️⏰ Backup shift complete timer ARMED: will fire in ${delayCompleteMs / 60000}min at $completeTimeStr")
 
-        shiftTimerRunnable = Runnable {
-            Log.i(TAG, "🛡️🚨 Backup shift timer FIRED! Checking if notification needed...")
-            // Re-read prefs to check if user checked out in the meantime
-            val currentPrefs = getSharedPreferences("devil_darwinbox_shift_prefs", MODE_PRIVATE)
-            val stillCheckedIn = currentPrefs.getString("shift_date", null) == todayStr
-                    && !currentPrefs.getBoolean("is_checked_out", false)
+            shiftCompleteRunnable = Runnable {
+                Log.i(TAG, "🛡️⏰ Backup shift complete timer FIRED! Checking if alert needed...")
+                val currentPrefs = getSharedPreferences("devil_darwinbox_shift_prefs", MODE_PRIVATE)
+                val stillCheckedIn = currentPrefs.getString("shift_date", null) == todayStr
+                        && !currentPrefs.getBoolean("is_checked_out", false)
 
-            if (stillCheckedIn) {
-                Log.i(TAG, "🛡️📢 User has NOT checked out! Posting overtime notification from Sentry backup.")
-                // Fire the receiver directly
-                val alarmIntent = Intent(this, DarwinboxAlarmReceiver::class.java).apply {
-                    action = DarwinboxShiftTracker.ACTION_ALARM_OVERDUE
+                if (stillCheckedIn) {
+                    Log.i(TAG, "🛡️📢 User has NOT checked out! Firing 9-hour shift complete announcement.")
+                    val completeIntent = Intent(this, DarwinboxAlarmReceiver::class.java).apply {
+                        action = DarwinboxShiftTracker.ACTION_ALARM_SHIFT_COMPLETE
+                    }
+                    sendBroadcast(completeIntent)
                 }
-                sendBroadcast(alarmIntent)
-            } else {
-                Log.i(TAG, "🛡️✅ User already checked out. Backup timer suppressed.")
             }
+            shiftTimerHandler.postDelayed(shiftCompleteRunnable!!, delayCompleteMs)
         }
-        shiftTimerHandler.postDelayed(shiftTimerRunnable!!, delayMs)
+
+        // 2. Arm 9h + 10m overdue backup
+        if (alertMs > now) {
+            val delayOverdueMs = alertMs - now
+            val alertTimeStr = java.text.SimpleDateFormat("h:mm a", Locale.getDefault()).format(java.util.Date(alertMs))
+            Log.i(TAG, "🛡️⏰ Backup overdue timer ARMED: will fire in ${delayOverdueMs / 60000}min at $alertTimeStr")
+
+            shiftTimerRunnable = Runnable {
+                Log.i(TAG, "🛡️🚨 Backup overdue timer FIRED! Checking if alert needed...")
+                val currentPrefs = getSharedPreferences("devil_darwinbox_shift_prefs", MODE_PRIVATE)
+                val stillCheckedIn = currentPrefs.getString("shift_date", null) == todayStr
+                        && !currentPrefs.getBoolean("is_checked_out", false)
+
+                if (stillCheckedIn) {
+                    Log.i(TAG, "🛡️📢 User has NOT checked out! Firing overtime alert from Sentry backup.")
+                    val alarmIntent = Intent(this, DarwinboxAlarmReceiver::class.java).apply {
+                        action = DarwinboxShiftTracker.ACTION_ALARM_OVERDUE
+                    }
+                    sendBroadcast(alarmIntent)
+                } else {
+                    Log.i(TAG, "🛡️✅ User already checked out. Backup timer suppressed.")
+                }
+            }
+            shiftTimerHandler.postDelayed(shiftTimerRunnable!!, delayOverdueMs)
+        }
     }
 
     /**
-     * Cancels the backup shift timer (e.g. after user checks out).
+     * Cancels the backup shift timers (e.g. after user checks out).
      */
     fun cancelBackupShiftTimer() {
+        shiftCompleteRunnable?.let {
+            shiftTimerHandler.removeCallbacks(it)
+        }
+        shiftCompleteRunnable = null
+
         shiftTimerRunnable?.let {
             shiftTimerHandler.removeCallbacks(it)
-            Log.d(TAG, "Backup shift timer canceled.")
+            Log.d(TAG, "Backup shift timers canceled.")
         }
         shiftTimerRunnable = null
     }
