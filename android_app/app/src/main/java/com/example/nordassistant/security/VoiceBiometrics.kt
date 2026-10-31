@@ -126,6 +126,20 @@ object VoiceBiometrics {
         val numFrames = (filtered.size - FRAME_SIZE) / HOP_SIZE
         if (numFrames <= 0) return FloatArray(EMBEDDING_DIM)
 
+        // 3. Adaptive Voice Activity Detection (VAD) to strictly isolate pure vocal speech frames
+        var maxRms = 0.0f
+        for (f in 0 until numFrames) {
+            val offset = f * HOP_SIZE
+            var sumSq = 0.0f
+            for (i in 0 until FRAME_SIZE) {
+                val s = filtered[offset + i]
+                sumSq += s * s
+            }
+            val rms = sqrt(sumSq / FRAME_SIZE)
+            if (rms > maxRms) maxRms = rms
+        }
+        val vadThreshold = max(maxRms * 0.18f, 0.005f)
+
         val frameMfccs = mutableListOf<FloatArray>()
         val framePitches = mutableListOf<Float>()
         val frameCentroids = mutableListOf<Float>()
@@ -138,14 +152,14 @@ object VoiceBiometrics {
         for (f in 0 until numFrames) {
             val offset = f * HOP_SIZE
 
-            // Check frame RMS energy (silence rejection)
+            // Check frame RMS energy against adaptive vocal threshold
             var sumSq = 0.0f
             for (i in 0 until FRAME_SIZE) {
                 val s = filtered[offset + i]
                 sumSq += s * s
             }
             val rms = sqrt(sumSq / FRAME_SIZE)
-            if (rms < 0.0025f) continue // Skip silent / unvoiced background noise frames
+            if (rms < vadThreshold) continue // Skip silent / unvoiced background noise frames
 
             // Apply Hamming window
             for (i in 0 until FRAME_SIZE) {
