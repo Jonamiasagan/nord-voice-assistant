@@ -1506,8 +1506,27 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val sendWhatsAppSimpleRegex = Regex(
             "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send|write|type)?\\s*(?:a\\s+)?whats?app(?:\\s+message)?\\s+(?:to\\s+)?(?!(?:to)\\b)([a-zA-Z0-9+\\s]{1,25}?)\\s*[:,]?\\s+(.+)"
         )
+        val openWhatsAppAppRegex = Regex(
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:open|launch|start|show)\\s+whats?app(?:\\s+app)?$"
+        )
         val openWhatsAppToContactRegex = Regex(
-            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send|open)?\\s*(?:a\\s+)?whats?app(?:\\s+message)?\\s+to\\s+([a-zA-Z0-9+\\s]{1,25}?)$"
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:open|start)?\\s*(?:a\\s+)?whats?app(?:\\s+chat)?\\s+(?:to|with)\\s+([a-zA-Z0-9+\\s]{1,25}?)$|" +
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send\\s+)?(?:a\\s+)?(?:whats?app\\s+)?message\\s+to\\s+([a-zA-Z0-9+\\s]{1,25}?)$|" +
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:open\\s+)?chat\\s+(?:to|with)\\s+([a-zA-Z0-9+\\s]{1,25}?)$|" +
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?message\\s+to\\s+([a-zA-Z0-9+\\s]{1,25}?)$"
+        )
+        // Short natural WhatsApp messaging regexes for long sentences:
+        val shortMessageRegex = Regex(
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send\\s+)?(?:a\\s+)?message\\s+(?:to\\s+)?([a-zA-Z0-9+\\s]{1,20}?)\\s*[:,]?\\s+(.+)$"
+        )
+        val shortTextRegex = Regex(
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?text\\s+(?:to\\s+)?([a-zA-Z0-9+\\s]{1,20}?)\\s*[:,]?\\s+(.+)$"
+        )
+        val shortTellRegex = Regex(
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?tell\\s+([a-zA-Z0-9+\\s]{1,20}?)\\s*(?:on\\s+whats?app\\s+)?(?:that|saying|to)?\\s+(.+)$"
+        )
+        val shortSendRegex = Regex(
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?send\\s+(?:to\\s+)?(myself|me|you|thambi|amma|baddu|bethol|akka|syam)\\s+(.+)$"
         )
         val sendWhatsAppContentThenToRegex = Regex(
             "(?i)^(?:can\\s+you\\s+|please\\s+)?(?:send|write|type)\\s+(?:a\\s+)?whats?app(?:\\s+message)?\\s+(.+?)\\s+to\\s+([a-zA-Z0-9+\\s]{1,25}?)$"
@@ -1779,10 +1798,40 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val message = match.groupValues[2].trim()
                 sendWhatsAppVoiceNote(normalizeContactName(targetName), message)
             }
+            openWhatsAppAppRegex.matches(trimmed) -> {
+                speakResponse("Opening WhatsApp.")
+                if (!openApp("com.whatsapp")) {
+                    openApp("whatsapp")
+                }
+            }
             openWhatsAppToContactRegex.find(trimmed) != null -> {
                 val match = openWhatsAppToContactRegex.find(trimmed)!!
-                val targetName = match.groupValues[1].trim()
+                val targetName = match.groupValues.drop(1).firstOrNull { it.isNotBlank() }?.trim() ?: ""
                 sendWhatsAppTextMessage(normalizeContactName(targetName), "")
+            }
+            shortMessageRegex.find(trimmed) != null -> {
+                val match = shortMessageRegex.find(trimmed)!!
+                val targetName = match.groupValues[1].trim()
+                val message = match.groupValues[2].trim()
+                sendWhatsAppTextMessage(normalizeContactName(targetName), message)
+            }
+            shortTextRegex.find(trimmed) != null -> {
+                val match = shortTextRegex.find(trimmed)!!
+                val targetName = match.groupValues[1].trim()
+                val message = match.groupValues[2].trim()
+                sendWhatsAppTextMessage(normalizeContactName(targetName), message)
+            }
+            shortTellRegex.find(trimmed) != null -> {
+                val match = shortTellRegex.find(trimmed)!!
+                val targetName = match.groupValues[1].trim()
+                val message = match.groupValues[2].trim()
+                sendWhatsAppTextMessage(normalizeContactName(targetName), message)
+            }
+            shortSendRegex.find(trimmed) != null -> {
+                val match = shortSendRegex.find(trimmed)!!
+                val targetName = match.groupValues[1].trim()
+                val message = match.groupValues[2].trim()
+                sendWhatsAppTextMessage(normalizeContactName(targetName), message)
             }
             sendWhatsAppContentThenToRegex.find(trimmed) != null -> {
                 val match = sendWhatsAppContentThenToRegex.find(trimmed)!!
@@ -1833,7 +1882,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val message = match.groupValues[2].trim()
                 sendWhatsAppTextMessage(normalizeContactName(targetName), message)
             }
-            isWhatsApp -> {
+            isWhatsApp && (trimmed.contains(Regex("(?i)\\b(?:read|check|get|any|latest|recent|listen|hear|new|unread)\\b")) || !trimmed.contains(Regex("(?i)\\b(open|launch|start|show)\\b"))) -> {
                 val fromMatch = Regex("(?i)(?:from|by)\\s+(.+)").find(trimmed)
                 val sender = fromMatch?.groupValues?.get(1)?.trim()
                 val isLast = trimmed.contains(Regex("(?i)\\b(last|latest|recent|previous|repeat)\\b"))
