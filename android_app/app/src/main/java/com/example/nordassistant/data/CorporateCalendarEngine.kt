@@ -32,6 +32,7 @@ object CorporateCalendarEngine {
         fun toCalendar(): Calendar {
             return Calendar.getInstance().apply {
                 set(Calendar.YEAR, year)
+                set(Calendar.DAY_OF_MONTH, 1)
                 set(Calendar.MONTH, month - 1)
                 set(Calendar.DAY_OF_MONTH, day)
                 set(Calendar.HOUR_OF_DAY, 0)
@@ -461,7 +462,10 @@ object CorporateCalendarEngine {
     ): String {
         val currentDay = cal.get(Calendar.DAY_OF_MONTH)
         val currentMonth = cal.get(Calendar.MONTH) + 1
-        val targetCal = Calendar.getInstance().apply { set(Calendar.MONTH, month - 1) }
+        val targetCal = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.MONTH, month - 1)
+        }
         val targetMonthName = SimpleDateFormat("MMMM", Locale.getDefault()).format(targetCal.time)
 
         val monthHolidays = getAllHolidays().filter { it.month == month }
@@ -549,6 +553,7 @@ object CorporateCalendarEngine {
         val monthHolidays = getAllHolidays().filter { it.month == month }
         val testCal = Calendar.getInstance().apply {
             set(Calendar.YEAR, currentYear)
+            set(Calendar.DAY_OF_MONTH, 1)
             set(Calendar.MONTH, month - 1)
         }
         val monthName = SimpleDateFormat("MMMM", Locale.getDefault()).format(testCal.time)
@@ -586,7 +591,13 @@ object CorporateCalendarEngine {
             }
         }
         val listStr = items.joinToString("; ")
-        return "Here is the full holiday schedule for $monthName, Boss: $listStr."
+        val sats = getSaturdaysForMonth(testCal)
+        val offSats = sats.filter { it.isOffDay }
+        val satInfo = if (offSats.isNotEmpty()) {
+            val satList = offSats.joinToString(" and ") { "${it.rankStr} Saturday (${it.dateStr})" }
+            " In addition, $satList are official corporate weekend offs."
+        } else ""
+        return "Here is the full holiday schedule for $monthName, Boss: $listStr.$satInfo"
     }
 
     /**
@@ -667,6 +678,7 @@ object CorporateCalendarEngine {
         }
 
         val testCal = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, 1)
             set(Calendar.MONTH, targetMonth - 1)
             set(Calendar.DAY_OF_MONTH, targetDay)
         }

@@ -179,3 +179,4 @@ object DevilVoiceSpeaker : TextToSpeech.OnInitListener {
         } catch (_: Exception) {}
     }
 }
+
