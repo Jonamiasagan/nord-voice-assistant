@@ -247,11 +247,11 @@ object DevilProtocolManager {
     fun isSentryModeTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
         if (isExplanationQuery(lower)) return false
-        val sentryWord = "(?:sentry|centri|centry|century|sentri|saintry|saintri|centre|center|remote|remode|sentiment)"
+        val sentryWord = "(?:sentry|centri|centry|century|sentri|saintry|saintri|centre|center|remote|remode|sentiment|monitor|monitoring|surveillance)"
         val modeWord = "(?:mode|mde|mod)?"
-        val triggerVerbs = "(?:activate|activation|engage|turn\\s*on|start|enter|enable|switch\\s*to)"
+        val triggerVerbs = "(?:activate|activation|engage|turn\\s*on|start|enter|enable|switch\\s*to|begin)"
 
-        return lower.contains(Regex("(?i)\\b($triggerVerbs\\s+$sentryWord(\\s+$modeWord)?|$sentryWord\\s+(?:mode|mde|mod)\\s*(on|active|engage|start)|$sentryWord\\s+(?:mode|mde|mod)|$sentryWord\\s+on)\\b")) ||
+        return lower.contains(Regex("(?i)\\b($triggerVerbs\\s+$sentryWord(\\s+$modeWord)?|$sentryWord\\s+(?:mode|mde|mod)\\s*(on|active|engage|start)|$sentryWord\\s+(?:mode|mde|mod)|$sentryWord\\s+on|start\\s+monitoring|begin\\s+monitoring|start\\s+listening)\\b")) ||
                lower.matches(Regex("(?i)^($triggerVerbs\\s+)?$sentryWord(\\s+$modeWord)?$"))
     }
 
@@ -260,11 +260,11 @@ object DevilProtocolManager {
      */
     fun isSentryModeRevokeTrigger(input: String): Boolean {
         val lower = input.lowercase().trim()
-        val sentryWord = "(?:sentry|centri|centry|century|sentri|saintry|saintri|centre|center|remote|remode|sentiment)"
+        val sentryWord = "(?:sentry|centri|centry|century|sentri|saintry|saintri|centre|center|remote|remode|sentiment|monitor|monitoring|surveillance)"
         val modeWord = "(?:mode|mde|mod)?"
         val revokeVerbs = "(?:revoke|disengage|turn\\s*off|stop|disable|exit|cancel)"
 
-        return lower.contains(Regex("(?i)\\b($revokeVerbs\\s+$sentryWord(\\s+$modeWord)?|$sentryWord\\s+(?:mode|mde|mod)\\s*(off|revoke|cancel|stop)|revoke\\s*$sentryWord)\\b"))
+        return lower.contains(Regex("(?i)\\b($revokeVerbs\\s+$sentryWord(\\s+$modeWord)?|$sentryWord\\s+(?:mode|mde|mod)\\s*(off|revoke|cancel|stop)|revoke\\s*$sentryWord|stop\\s+monitoring)\\b"))
     }
 
     var isSentryModeActive: Boolean = false
