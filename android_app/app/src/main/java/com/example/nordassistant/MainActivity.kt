@@ -2336,6 +2336,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             if (formattedText.isNotEmpty()) {
+                if (!isAccessibilityServiceEnabled()) {
+                    Log.w("MainActivity", "Accessibility not enabled when attempting to send WhatsApp message. Prompting user.")
+                    try {
+                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        })
+                    } catch (_: Exception) {}
+                }
                 DevilAccessibilityService.triggerAutoSend(contact.displayName)
             }
             startActivity(intent)

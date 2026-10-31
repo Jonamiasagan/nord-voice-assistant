@@ -77,7 +77,7 @@ class DevilAccessibilityService : AccessibilityService() {
     }
 
     fun scheduleSendAttempts() {
-        val delays = listOf(300L, 600L, 1000L, 1500L, 2200L, 3000L, 4500L)
+        val delays = listOf(300L, 600L, 1000L, 1500L, 2000L, 2600L, 3300L, 4200L, 5200L, 6500L, 8000L)
         for (delay in delays) {
             handler.postDelayed({
                 if (isAutoSendPending) {

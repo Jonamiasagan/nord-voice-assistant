@@ -519,6 +519,19 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
             putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
         }
+
+        // Acquire a wake lock to ensure CPU remains active and audio plays even when the screen is off / locked
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            val wakeLock = pm?.newWakeLock(
+                android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                "NordAssistant:WhatsAppVoiceAnnounce"
+            )
+            wakeLock?.acquire(15000L) // Release automatically after 15 seconds
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to acquire wake lock for screen-off voice announcement", e)
+        }
+
         callTts?.speak(speech, TextToSpeech.QUEUE_ADD, params, "DEVIL_WA_MSG_${System.currentTimeMillis()}")
     }
 
@@ -723,6 +736,16 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
             putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
         }
+
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            val wakeLock = pm?.newWakeLock(
+                android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                "NordAssistant:CallVoiceAnnounce"
+            )
+            wakeLock?.acquire(20000L)
+        } catch (_: Exception) {}
+
         callTts?.speak(phrase, TextToSpeech.QUEUE_FLUSH, params, "DEVIL_CALL_${System.currentTimeMillis()}")
     }
 
