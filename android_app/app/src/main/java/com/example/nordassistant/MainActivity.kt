@@ -577,6 +577,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun createSpeechRecognizerListener(): RecognitionListener {
         return object : RecognitionListener {
+            private val speechAudioBuffer = java.io.ByteArrayOutputStream()
+
             override fun onReadyForSpeech(params: Bundle?) { 
                 isListening = true 
                 assistantState = AssistantState.LISTENING
@@ -588,15 +590,30 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             override fun onBeginningOfSpeech() {
                 isListening = true
                 assistantState = AssistantState.LISTENING
+                speechAudioBuffer.reset()
+                try {
+                    voiceRecorder.startRecording()
+                } catch (e: Exception) {
+                    Log.w("MainActivity", "Parallel voiceRecorder start failed", e)
+                }
             }
             override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onBufferReceived(buffer: ByteArray?) {
+                if (buffer != null && buffer.isNotEmpty()) {
+                    synchronized(speechAudioBuffer) {
+                        speechAudioBuffer.write(buffer)
+                    }
+                }
+            }
             override fun onEndOfSpeech() { 
                 isListening = false 
                 assistantState = AssistantState.THINKING
             }
             override fun onError(error: Int) {
                 isListening = false
+                try {
+                    voiceRecorder.stopRecording()
+                } catch (_: Exception) {}
                 val now = System.currentTimeMillis()
                 val sessionActive = inConversationSession && (now < conversationSessionEndTime)
 
@@ -645,9 +662,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             override fun onResults(results: Bundle?) {
                 isListening = false
+                val recordedBytes = try {
+                    voiceRecorder.stopRecording()
+                } catch (_: Exception) {
+                    ByteArray(0)
+                }
+                val bufferBytes = synchronized(speechAudioBuffer) { speechAudioBuffer.toByteArray() }
+                val pcmAudio = if (recordedBytes.isNotEmpty()) recordedBytes else bufferBytes
+
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (!matches.isNullOrEmpty()) {
-                    Log.d("MainActivity", "SpeechRecognizer onResults matches: $matches")
+                    Log.d("MainActivity", "SpeechRecognizer onResults matches: $matches, audioBytes=${pcmAudio.size}")
                     var selectedCandidate = matches[0]
                     for (candidate in matches) {
                         val norm = normalizeSpokenCommand(candidate)
@@ -669,7 +694,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     transcript = text
                     assistantState = AssistantState.THINKING
                     refreshConversationSession() // Reset timer on user speech!
-                    processCommand(text)
+                    processCommand(text, pcmAudio)
                 } else {
                     if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime) {
                         assistantState = AssistantState.IDLE
@@ -738,6 +763,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, preferredLocale.toLanguageTag())
+            putExtra("android.speech.extra.GET_AUDIO", true)
             if (offlineSpeechSupported) {
                 // Prefer offline recognition if local pack is installed
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
@@ -1375,7 +1401,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun processCommand(command: String) {
+    private fun processCommand(command: String, pcmAudio: ByteArray? = null) {
         val trimmed = normalizeSpokenCommand(command)
         Log.i("MainActivity", "COMMAND RECEIVED: '$command' -> TRIMMED: '$trimmed'")
         lastUserCommandForTurn = trimmed
@@ -1389,6 +1415,21 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (trimmed.contains(Regex("(?i)\\b(play\\s*(my\\s*)?(voice|recording|calibration)|listen\\s*(to\\s*)?(my\\s*)?(voice|recording|calibration)|hear\\s*(my\\s*)?(voice|recording)|playback\\s*(my\\s*)?voice)\\b"))) {
             playRecordedVoice()
             return
+        }
+
+        // ── Voice Biometrics & Boss Clearance Enforcement ──
+        if (bossSecurity.isBossVoiceprintValid() && pcmAudio != null && pcmAudio.size >= VoiceBiometrics.FRAME_SIZE * 4) {
+            val auth = bossSecurity.verifySpeaker(pcmAudio, threshold = 0.58f)
+            Log.i("MainActivity", "Voice Biometrics Verification: authorized=${auth.isAuthorized}, isBoss=${auth.isBoss}, isGuest=${auth.isGuest}, similarity=${(auth.similarity * 100).toInt()}%, reason=${auth.reason}")
+
+            if (!auth.isAuthorized) {
+                Log.w("MainActivity", "⛔ ACCESS DENIED: Stranger voice detected! Similarity: ${(auth.similarity * 100).toInt()}% (Threshold: 58%)")
+                assistantState = AssistantState.IDLE
+                transcript = "Access Denied // Voice Mismatch: You are not my Boss."
+                inConversationSession = false
+                speakResponse("You are not my Boss. Access denied.")
+                return
+            }
         }
         if (trimmed.contains(Regex("(?i)\\b(is\\s*(my\\s*)?voice\\s*(calibrated|enrolled|registered)|voice\\s*(calibration|biometric)\\s*status|check\\s*(voice\\s*)?calibration|did\\s*i\\s*calibrate\\s*(my\\s*)?voice)\\b"))) {
             if (bossSecurity.isBossVoiceprintValid()) {

@@ -438,6 +438,7 @@ class BossVoiceRecorder {
     private val TAG = "BossVoiceRecorder"
 
     private var audioRecord: AudioRecord? = null
+    @Volatile
     private var isRecording = false
     private val audioBuffer = ByteArrayOutputStream()
     private var recordingThread: Thread? = null
