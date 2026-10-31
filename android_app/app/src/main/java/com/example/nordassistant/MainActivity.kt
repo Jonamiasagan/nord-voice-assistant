@@ -1345,12 +1345,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun handleVoiceCalibration() {
-        speakResponse("Boss voice calibration initiated. After the tone, please speak continuously for three seconds: 'I am the Boss, authorize DEVIL'.")
+        speakResponse("Ready Boss. Speak clearly after the phone vibrates!")
         scope.launch(Dispatchers.Main) {
-            delay(4200)
+            delay(1800)
+            try {
+                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator?.vibrate(android.os.VibrationEffect.createOneShot(300, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(300)
+                }
+            } catch (e: Exception) {
+                Log.w("MainActivity", "Vibration failed", e)
+            }
             assistantState = AssistantState.LISTENING
-            transcript = "Calibrating Boss Voiceprint... Speak now!"
-            val pcmBytes = voiceRecorder.recordCalibration(3500L)
+            transcript = "🔴 RECORDING BOSS VOICEPRINT... SPEAK NOW (4.5s)!"
+            val pcmBytes = voiceRecorder.recordCalibration(4500L)
             assistantState = AssistantState.THINKING
             if (pcmBytes.isNotEmpty()) {
                 try {
@@ -1373,7 +1384,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakResponse("Calibration successful! Your master acoustic voiceprint is now locked to DEVIL, Boss.")
                 transcript = "Boss Voiceprint Enrolled Successfully"
             } else {
-                speakResponse("Could not capture sufficient audio voice features. You can say 'play my voice' to hear what was recorded, or say 'calibrate my voice' to try again.")
+                speakResponse("Could not capture sufficient audio voice features. Please say 'calibrate my voice' to try again.")
                 transcript = "Calibration: Speak louder into mic"
             }
             assistantState = AssistantState.IDLE
@@ -1412,7 +1423,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         isHandlingQueryBackend = false
 
         // ── Voice Calibration & Voiceprint Management ──
-        if (trimmed.contains(Regex("(?i)\\b(calibrate\\s*(my\\s*)?voice|enroll\\s*(my\\s*)?voice|setup\\s*voiceprint|register\\s*(my\\s*)?voice|record\\s*voiceprint)\\b"))) {
+        if (trimmed.contains(Regex("(?i)\\b((?:calibrate|celebrate|collaborate|caliber|celibrate|calibrated|calibrating)\\s*(?:my\\s*)?voice|enroll\\s*(?:my\\s*)?voice|setup\\s*voiceprint|register\\s*(?:my\\s*)?voice|record\\s*voiceprint|voice\\s*calibration)\\b"))) {
             handleVoiceCalibration()
             return
         }
