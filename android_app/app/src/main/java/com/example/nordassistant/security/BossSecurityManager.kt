@@ -157,7 +157,7 @@ class BossSecurityManager private constructor(context: Context) {
     /**
      * Verifies if incoming audio belongs to the enrolled Boss, an active Guest, or an unauthorized stranger.
      */
-    fun verifySpeaker(pcmBytes: ByteArray, threshold: Float = 0.68f): VoiceAuthResult {
+    fun verifySpeaker(pcmBytes: ByteArray, threshold: Float = 0.65f): VoiceAuthResult {
         if (!isBossEnrolled) {
             // Uncalibrated / Open Boss mode
             return VoiceAuthResult(

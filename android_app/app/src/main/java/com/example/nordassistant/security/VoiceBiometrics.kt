@@ -138,7 +138,7 @@ object VoiceBiometrics {
             val rms = sqrt(sumSq / FRAME_SIZE)
             if (rms > maxRms) maxRms = rms
         }
-        val vadThreshold = max(maxRms * 0.18f, 0.005f)
+        val vadThreshold = max(maxRms * 0.20f, 0.008f)
 
         val frameMfccs = mutableListOf<FloatArray>()
         val framePitches = mutableListOf<Float>()
@@ -187,14 +187,15 @@ object VoiceBiometrics {
                 logMelEnergies[m] = ln(max(energy, 1e-6f))
             }
 
-            // DCT-II for 13 MFCCs
+            // DCT-II for 13 MFCCs with Sinusoidal Lifter (L=22) to suppress tilt and amplify unique vocal formants
             val mfcc = FloatArray(NUM_MFCC)
             for (n in 0 until NUM_MFCC) {
                 var sum = 0.0f
                 for (m in 0 until NUM_MEL_FILTERS) {
                     sum += logMelEnergies[m] * cos((Math.PI * n * (m + 0.5) / NUM_MEL_FILTERS).toFloat())
                 }
-                mfcc[n] = sum
+                val lifterWeight = 1.0f + 11.0f * sin((Math.PI * n / 22.0).toFloat())
+                mfcc[n] = sum * lifterWeight
             }
             frameMfccs.add(mfcc)
 

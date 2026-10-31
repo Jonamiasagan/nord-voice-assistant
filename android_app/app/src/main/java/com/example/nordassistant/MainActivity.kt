@@ -1435,11 +1435,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         // ── Voice Biometrics & Boss Clearance Enforcement ──
         if (!isVoiceVerified && bossSecurity.isBossVoiceprintValid()) {
             val audioBytes = pcmAudio ?: ByteArray(0)
-            val auth = bossSecurity.verifySpeaker(audioBytes, threshold = 0.68f)
+            val auth = bossSecurity.verifySpeaker(audioBytes, threshold = 0.65f)
             Log.i("MainActivity", "Voice Biometrics Verification: authorized=${auth.isAuthorized}, isBoss=${auth.isBoss}, isGuest=${auth.isGuest}, similarity=${(auth.similarity * 100).toInt()}%, reason=${auth.reason}")
 
             if (!auth.isAuthorized) {
-                Log.w("MainActivity", "⛔ ACCESS DENIED: Stranger voice detected! Similarity: ${(auth.similarity * 100).toInt()}% (Threshold: 68%)")
+                Log.w("MainActivity", "⛔ ACCESS DENIED: Stranger voice detected! Similarity: ${(auth.similarity * 100).toInt()}% (Threshold: 65%)")
                 assistantState = AssistantState.IDLE
                 transcript = "Access Denied // Voice Mismatch: You are not my Boss."
                 inConversationSession = false

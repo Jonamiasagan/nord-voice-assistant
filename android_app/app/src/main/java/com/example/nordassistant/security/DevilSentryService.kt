@@ -316,10 +316,10 @@ class DevilSentryService : Service() {
         // Strict Voice Biometrics Clearance
         val bossSecurity = BossSecurityManager.getInstance(this@DevilSentryService)
         if (bossSecurity.isBossVoiceprintValid()) {
-            val auth = bossSecurity.verifySpeaker(pcmAudio, threshold = 0.68f)
+            val auth = bossSecurity.verifySpeaker(pcmAudio, threshold = 0.65f)
             Log.i(TAG, "Sentry Voice Biometrics: isAuthorized=${auth.isAuthorized}, isBoss=${auth.isBoss}, isGuest=${auth.isGuest}, similarity=${(auth.similarity * 100).toInt()}%")
             if (!auth.isAuthorized) {
-                Log.w(TAG, "⛔ Sentry Voice Mismatch: ${(auth.similarity * 100).toInt()}% vs threshold 68%. Unauthorized speaker!")
+                Log.w(TAG, "⛔ Sentry Voice Mismatch: ${(auth.similarity * 100).toInt()}% vs threshold 65%. Unauthorized speaker!")
                 com.example.nordassistant.data.DevilVoiceSpeaker.speak(this@DevilSentryService, "You are not my Boss. Access denied.")
                 scheduleRestart(800L)
                 return
