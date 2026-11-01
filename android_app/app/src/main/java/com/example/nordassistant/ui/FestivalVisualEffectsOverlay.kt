@@ -79,13 +79,13 @@ fun FestivalVisualEffectsOverlay(
         ParticleEffectType.DIWALI_FIREWORKS -> {
             val rockets = remember {
                 listOf(
-                    FireworkRocket(0.20f, 0.22f, 0.20f, Color(0xFFFFD700), 28, 220f, 0.0f),
-                    FireworkRocket(0.80f, 0.78f, 0.24f, Color(0xFFFF3D00), 30, 240f, 0.25f),
-                    FireworkRocket(0.50f, 0.50f, 0.12f, Color(0xFFFFEA00), 36, 280f, 0.50f),
-                    FireworkRocket(0.35f, 0.30f, 0.38f, Color(0xFFFF6D00), 26, 200f, 0.75f),
-                    FireworkRocket(0.70f, 0.75f, 0.42f, Color(0xFFFFAB00), 28, 210f, 0.12f),
-                    FireworkRocket(0.15f, 0.12f, 0.55f, Color(0xFFFF1744), 24, 190f, 0.62f),
-                    FireworkRocket(0.85f, 0.88f, 0.58f, Color(0xFFFFD600), 26, 210f, 0.38f)
+                    FireworkRocket(0.18f, 0.20f, 0.10f, Color(0xFFFFD700), 32, 260f, 0.0f),
+                    FireworkRocket(0.82f, 0.80f, 0.14f, Color(0xFFFF3D00), 34, 280f, 0.25f),
+                    FireworkRocket(0.50f, 0.50f, 0.07f, Color(0xFFFFEA00), 40, 320f, 0.50f),
+                    FireworkRocket(0.32f, 0.28f, 0.20f, Color(0xFFFF6D00), 30, 240f, 0.75f),
+                    FireworkRocket(0.68f, 0.72f, 0.22f, Color(0xFFFFAB00), 32, 250f, 0.12f),
+                    FireworkRocket(0.12f, 0.10f, 0.28f, Color(0xFFFF1744), 28, 230f, 0.62f),
+                    FireworkRocket(0.88f, 0.90f, 0.30f, Color(0xFFFFD600), 30, 250f, 0.38f)
                 )
             }
 
@@ -101,34 +101,36 @@ fun FestivalVisualEffectsOverlay(
                     val targetY = rocket.targetYNorm * h
                     val launchY = h + 20f
 
-                    // Stage 1: Rocket Ascending from Bottom to Target Sky (0.0 to 0.35)
-                    if (localTime <= 0.35f) {
-                        val ascentProg = (localTime / 0.35f).coerceIn(0f, 1f)
+                    // Stage 1: Long Ascent from Ground all the way to Upper Sky (0.0 to 0.45)
+                    if (localTime <= 0.45f) {
+                        val ascentProg = (localTime / 0.45f).coerceIn(0f, 1f)
                         val currX = launchX + (targetX - launchX) * ascentProg
                         val currY = launchY + (targetY - launchY) * ascentProg
 
                         // Glowing rocket head
                         drawCircle(
-                            color = Color(0xFFFFF9C4),
-                            radius = 4.5f,
+                            color = Color(0xFFFFFFFF),
+                            radius = 5.5f,
                             center = Offset(currX, currY)
                         )
-                        // Rocket propulsion spark tail (descending trail)
-                        for (trailIdx in 1..8) {
-                            val trailBack = trailIdx * 5.5f
+                        // Deep long rocket propulsion spark tail (long flame streak)
+                        for (trailIdx in 1..24) {
+                            val trailBack = trailIdx * 7.0f // Up to ~170px long glowing tail!
                             val trailY = currY + trailBack
-                            val trailX = currX + sin(trailIdx.toFloat()) * 2f
-                            val trailAlpha = (1f - (trailIdx / 8f)) * 0.9f
+                            val trailX = currX + sin(trailIdx.toFloat() * 1.5f) * 2.5f
+                            val trailAlpha = (1f - (trailIdx / 25f)) * 0.95f
+                            val tailColor = if (trailIdx < 6) Color(0xFFFFF9C4) else if (trailIdx < 14) rocket.color else Color(0xFFFF5722)
+
                             drawCircle(
-                                color = rocket.color.copy(alpha = trailAlpha),
-                                radius = 2.5f * (1f - trailIdx / 9f),
+                                color = tailColor.copy(alpha = trailAlpha),
+                                radius = (3.8f * (1f - trailIdx / 26f)).coerceAtLeast(1.2f),
                                 center = Offset(trailX, trailY)
                             )
                         }
                     }
-                    // Stage 2: Grand Cracker Blast Explosion (0.35 to 1.0)
+                    // Stage 2: Grand Cracker Blast Explosion (0.45 to 1.0)
                     else {
-                        val blastProg = ((localTime - 0.35f) / 0.65f).coerceIn(0f, 1f)
+                        val blastProg = ((localTime - 0.45f) / 0.55f).coerceIn(0f, 1f)
                         val currentRadius = rocket.maxRadius * blastProg
                         val alpha = (1f - blastProg).coerceIn(0f, 1f)
 
@@ -137,14 +139,14 @@ fun FestivalVisualEffectsOverlay(
                             val flashAlpha = (1f - blastProg * 5f).coerceIn(0f, 1f)
                             drawCircle(
                                 color = Color.White.copy(alpha = flashAlpha * 0.95f),
-                                radius = 22f * (1f - blastProg),
+                                radius = 28f * (1f - blastProg),
                                 center = Offset(targetX, targetY)
                             )
                             // Outer shockwave ring
                             drawCircle(
-                                color = rocket.color.copy(alpha = flashAlpha * 0.7f),
-                                radius = 45f * blastProg * 5f,
-                                style = Stroke(width = 3.5f),
+                                color = rocket.color.copy(alpha = flashAlpha * 0.8f),
+                                radius = 55f * blastProg * 5f,
+                                style = Stroke(width = 4.0f),
                                 center = Offset(targetX, targetY)
                             )
                         }
