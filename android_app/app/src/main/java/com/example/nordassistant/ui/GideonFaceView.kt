@@ -139,9 +139,16 @@ fun GideonFaceView(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF030712)) // Sci-fi deep space black
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        activeFestival.bgTopColor,
+                        activeFestival.bgBottomColor
+                    )
+                )
+            )
     ) {
-        // ── 1. BACKGROUND HOLOGRAPHIC DOT MATRIX WALL (Gideon's Chamber) ──
+        // ── 1. BACKGROUND HOLOGRAPHIC DOT MATRIX WALL (Dynamic Festival Glow) ──
         Canvas(modifier = Modifier.fillMaxSize()) {
             val dotSpacing = 36.dp.toPx()
             val cols = (size.width / dotSpacing).toInt() + 1
@@ -156,11 +163,11 @@ fun GideonFaceView(
                     val dy = cy - size.height / 2f
                     val dist = kotlin.math.sqrt(dx * dx + dy * dy)
                     val maxDist = kotlin.math.sqrt(size.width * size.width + size.height * size.height) / 2f
-                    val factor = (1f - (dist / maxDist).coerceIn(0f, 1f)) * 0.45f
+                    val factor = (1f - (dist / maxDist).coerceIn(0f, 1f)) * 0.50f
 
                     drawCircle(
-                        color = Color(0xFF00E5FF).copy(alpha = factor * 0.45f),
-                        radius = 2.2f,
+                        color = activeFestival.dotMatrixColor.copy(alpha = factor * 0.55f),
+                        radius = 2.4f,
                         center = Offset(cx, cy)
                     )
                 }
@@ -250,8 +257,8 @@ fun GideonFaceView(
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                Color(0xFF00E5FF).copy(alpha = glowAlpha * 0.35f),
-                                Color(0xFF0052CC).copy(alpha = glowAlpha * 0.15f),
+                                activeFestival.primaryRingColor.copy(alpha = glowAlpha * 0.45f),
+                                activeFestival.secondaryRingColor.copy(alpha = glowAlpha * 0.25f),
                                 Color.Transparent
                             ),
                             center = center,
@@ -261,7 +268,7 @@ fun GideonFaceView(
 
                     // Outer Cyberspace HUD Ring 1 (Dashed / Segmented)
                     drawCircle(
-                        color = Color(0xFF00E5FF).copy(alpha = 0.3f),
+                        color = activeFestival.primaryRingColor.copy(alpha = 0.4f),
                         radius = radius + 12.dp.toPx(),
                         style = Stroke(
                             width = 1.8f,
@@ -271,7 +278,7 @@ fun GideonFaceView(
 
                     // Inner Cyberspace HUD Ring 2 (Counter-rotating)
                     drawCircle(
-                        color = Color(0xFF18FFFF).copy(alpha = 0.5f),
+                        color = activeFestival.secondaryRingColor.copy(alpha = 0.6f),
                         radius = radius + 4.dp.toPx(),
                         style = Stroke(
                             width = 2.2f,
@@ -284,7 +291,7 @@ fun GideonFaceView(
                     val nodeX = center.x + (radius + 8.dp.toPx()) * cos(nodeAngleRad).toFloat()
                     val nodeY = center.y + (radius + 8.dp.toPx()) * sin(nodeAngleRad).toFloat()
                     drawCircle(
-                        color = Color(0xFFE0F7FA),
+                        color = activeFestival.accentColor,
                         radius = 4.5f,
                         center = Offset(nodeX, nodeY)
                     )
@@ -293,7 +300,7 @@ fun GideonFaceView(
                     val node2X = center.x + (radius + 8.dp.toPx()) * cos(node2AngleRad).toFloat()
                     val node2Y = center.y + (radius + 8.dp.toPx()) * sin(node2AngleRad).toFloat()
                     drawCircle(
-                        color = Color(0xFF00E5FF),
+                        color = activeFestival.secondaryRingColor,
                         radius = 3.5f,
                         center = Offset(node2X, node2Y)
                     )
@@ -453,14 +460,14 @@ fun GideonFaceView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF061325).copy(alpha = 0.75f))
+                        .background(activeFestival.bgBottomColor.copy(alpha = 0.85f))
                         .border(
                             width = 1.dp,
                             brush = Brush.horizontalGradient(
                                 listOf(
-                                    Color(0xFF00E5FF).copy(alpha = 0.4f),
-                                    Color(0xFF0052CC).copy(alpha = 0.2f),
-                                    Color(0xFF00E5FF).copy(alpha = 0.4f)
+                                    activeFestival.primaryRingColor.copy(alpha = 0.5f),
+                                    activeFestival.secondaryRingColor.copy(alpha = 0.3f),
+                                    activeFestival.primaryRingColor.copy(alpha = 0.5f)
                                 )
                             ),
                             shape = RoundedCornerShape(16.dp)
@@ -473,11 +480,11 @@ fun GideonFaceView(
                             modifier = Modifier.padding(bottom = 6.dp)
                         ) {
                             Text(
-                                text = "COMMUNICATION LOG",
+                                text = "COMMUNICATION LOG // ${activeFestival.festivalName.uppercase()}",
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF00E5FF).copy(alpha = 0.6f),
+                                color = activeFestival.primaryRingColor.copy(alpha = 0.8f),
                                 letterSpacing = 1.5.sp
                             )
                         }

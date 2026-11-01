@@ -7,9 +7,13 @@ import java.util.Calendar
 
 data class FestivalTheme(
     val festivalName: String,
-    @DrawableRes val drawableResId: Int,
+    @param:DrawableRes val drawableResId: Int,
     val primaryRingColor: Color,
     val secondaryRingColor: Color,
+    val accentColor: Color,
+    val bgTopColor: Color,
+    val bgBottomColor: Color,
+    val dotMatrixColor: Color,
     val greeting: String
 )
 
@@ -17,7 +21,7 @@ object FestivalThemeManager {
 
     /**
      * Resolves the active festival theme dynamically based on current date.
-     * Defaults to the classic Gideon face if no active festival matches today.
+     * Includes custom background gradients, dot-matrix tints, and accent colors.
      */
     fun getActiveFestivalTheme(): FestivalTheme {
         val cal = Calendar.getInstance()
@@ -32,16 +36,24 @@ object FestivalThemeManager {
                     drawableResId = R.drawable.gideon_kannada_rajyotsava,
                     primaryRingColor = Color(0xFFFFD700), // Haldi Yellow
                     secondaryRingColor = Color(0xFFD32F2F), // Kumkuma Red
+                    accentColor = Color(0xFFFFEB3B),
+                    bgTopColor = Color(0xFF2E1C00), // Rich dark turmeric ambient glow
+                    bgBottomColor = Color(0xFF260505), // Rich dark crimson ambient glow
+                    dotMatrixColor = Color(0xFFFFD700),
                     greeting = "ಶುಭ ಕನ್ನಡ ರಾಜ್ಯೋತ್ಸವ! Happy Kannada Rajyotsava Boss!"
                 )
             }
-            // Dhanteras: November 6 (2026) / late autumn
+            // Dhanteras: November 6 (2026)
             month == Calendar.NOVEMBER && day == 6 -> {
                 FestivalTheme(
                     festivalName = "Dhanteras",
                     drawableResId = R.drawable.gideon_dhanteras,
                     primaryRingColor = Color(0xFFFFD700), // Brass Gold
                     secondaryRingColor = Color(0xFFE67E22), // Copper Ochre
+                    accentColor = Color(0xFFF1C40F),
+                    bgTopColor = Color(0xFF241B03),
+                    bgBottomColor = Color(0xFF1B0F03),
+                    dotMatrixColor = Color(0xFFFFD700),
                     greeting = "Happy Dhanteras Boss! Wishing you boundless prosperity."
                 )
             }
@@ -52,6 +64,10 @@ object FestivalThemeManager {
                     drawableResId = R.drawable.gideon_naraka_chaturdashi,
                     primaryRingColor = Color(0xFFFF9933), // Electric Saffron
                     secondaryRingColor = Color(0xFF8E44AD), // Twilight Purple
+                    accentColor = Color(0xFFFFA726),
+                    bgTopColor = Color(0xFF1D0B2B), // Deep twilight ambient
+                    bgBottomColor = Color(0xFF261002), // Warm saffron ambient
+                    dotMatrixColor = Color(0xFFFF9933),
                     greeting = "Happy Naraka Chaturdashi Boss! May all darkness be dispelled."
                 )
             }
@@ -62,6 +78,10 @@ object FestivalThemeManager {
                     drawableResId = R.drawable.gideon_diwali,
                     primaryRingColor = Color(0xFFF39C12), // Deep Diya Gold
                     secondaryRingColor = Color(0xFFE74C3C), // Festive Vermilion
+                    accentColor = Color(0xFFFFC107),
+                    bgTopColor = Color(0xFF2A1502), // Warm glowing diya darkness
+                    bgBottomColor = Color(0xFF200707),
+                    dotMatrixColor = Color(0xFFF39C12),
                     greeting = "Happy Deepavali Boss! May your life be illuminated with light."
                 )
             }
@@ -72,6 +92,10 @@ object FestivalThemeManager {
                     drawableResId = R.drawable.gideon_diwali,
                     primaryRingColor = Color(0xFF27AE60), // Emerald Green
                     secondaryRingColor = Color(0xFFF1C40F), // Turmeric
+                    accentColor = Color(0xFF2ECC71),
+                    bgTopColor = Color(0xFF041F10),
+                    bgBottomColor = Color(0xFF1F1C02),
+                    dotMatrixColor = Color(0xFF2ECC71),
                     greeting = "Happy Govardhan Puja and Annakut Boss!"
                 )
             }
@@ -82,6 +106,10 @@ object FestivalThemeManager {
                     drawableResId = R.drawable.gideon_bhai_dooj,
                     primaryRingColor = Color(0xFFE74C3C), // Roli Crimson
                     secondaryRingColor = Color(0xFFFF7675), // Rose Pink
+                    accentColor = Color(0xFFFF5252),
+                    bgTopColor = Color(0xFF240608),
+                    bgBottomColor = Color(0xFF1A0A17),
+                    dotMatrixColor = Color(0xFFFF7675),
                     greeting = "Happy Bhai Dooj Boss!"
                 )
             }
@@ -92,6 +120,10 @@ object FestivalThemeManager {
                     drawableResId = R.drawable.gideon_face_sq,
                     primaryRingColor = Color(0xFF00E5FF),
                     secondaryRingColor = Color(0xFF0091EA),
+                    accentColor = Color(0xFF18FFFF),
+                    bgTopColor = Color(0xFF030712),
+                    bgBottomColor = Color(0xFF020B1A),
+                    dotMatrixColor = Color(0xFF00E5FF),
                     greeting = "G.I.D.E.O.N. Online. Awaiting your command, Boss."
                 )
             }
