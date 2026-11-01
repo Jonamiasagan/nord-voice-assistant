@@ -259,12 +259,12 @@ fun FestivalVisualEffectsOverlay(
 
         ParticleEffectType.NARAKA_AARTI_FLAMES -> {
             val embers = remember {
-                List(32) { idx ->
+                List(42) { idx ->
                     val rnd = Random(idx * 43)
                     DriftingCoin(
                         xNorm = rnd.nextFloat(),
-                        speed = 0.7f + rnd.nextFloat() * 0.8f,
-                        size = 3.5f + rnd.nextFloat() * 4.5f,
+                        speed = 0.35f + rnd.nextFloat() * 0.45f,
+                        size = 3.5f + rnd.nextFloat() * 6.0f,
                         phaseOffset = rnd.nextFloat()
                     )
                 }
@@ -275,22 +275,29 @@ fun FestivalVisualEffectsOverlay(
                 val h = size.height
 
                 embers.forEach { ember ->
-                    // Rising from bottom to top
+                    // Rising gracefully from bottom Aarti diyas to sky
                     val riseProgress = 1f - ((timeProg * ember.speed + ember.phaseOffset) % 1f)
-                    val cx = ember.xNorm * w + sin(riseProgress * 14f) * 22f
+                    val cx = ember.xNorm * w + sin(riseProgress * 8f) * 28f
                     val cy = riseProgress * (h + 40f)
 
-                    val alpha = (sin(riseProgress * Math.PI.toFloat())).coerceIn(0f, 1f) * 0.85f
-                    val emberColor = if (ember.size > 5f) Color(0xFFFF5722) else Color(0xFFFFB300)
+                    val alpha = (sin(riseProgress * Math.PI.toFloat())).coerceIn(0f, 1f) * 0.90f
+                    val emberColor = if (ember.size > 6.5f) Color(0xFFFF3D00) else if (ember.size > 4.5f) Color(0xFFFF9100) else Color(0xFFFFD700)
 
+                    // Outer fire halo
+                    drawCircle(
+                        color = emberColor.copy(alpha = alpha * 0.5f),
+                        radius = ember.size * 1.6f,
+                        center = Offset(cx, cy)
+                    )
+                    // Solid flame ember core
                     drawCircle(
                         color = emberColor.copy(alpha = alpha),
                         radius = ember.size,
                         center = Offset(cx, cy)
                     )
-                    // Core hot spark
+                    // White-hot center spark
                     drawCircle(
-                        color = Color(0xFFFFF9C4).copy(alpha = alpha),
+                        color = Color(0xFFFFFFFF).copy(alpha = alpha * 0.95f),
                         radius = ember.size * 0.45f,
                         center = Offset(cx, cy)
                     )

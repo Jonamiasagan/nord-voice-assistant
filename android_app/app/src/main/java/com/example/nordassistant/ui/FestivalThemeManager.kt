@@ -24,7 +24,7 @@ object FestivalThemeManager {
      * Set this preview flag to force-preview any festival anytime!
      * Null = Automatic calendar resolution.
      */
-    var previewFestival: String? = "Dhanteras"
+    var previewFestival: String? = "Naraka Chaturdashi"
 
     fun getDiwaliTheme(): FestivalTheme {
         return FestivalTheme(
