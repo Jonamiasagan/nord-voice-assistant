@@ -113,6 +113,20 @@ object FestivalThemeManager {
                     greeting = "Happy Bhai Dooj Boss!"
                 )
             }
+            // Chhath Puja: November 13 to 16 (2026)
+            month == Calendar.NOVEMBER && day in 13..16 -> {
+                FestivalTheme(
+                    festivalName = "Chhath Puja",
+                    drawableResId = R.drawable.gideon_chhath_puja,
+                    primaryRingColor = Color(0xFFFF9800), // Solar Orange
+                    secondaryRingColor = Color(0xFFFFD54F), // Sunrise Gold
+                    accentColor = Color(0xFFFFE082),
+                    bgTopColor = Color(0xFF2E1500), // Dawn Sun glow
+                    bgBottomColor = Color(0xFF1A0C00), // River Ghat bank
+                    dotMatrixColor = Color(0xFFFFB74D),
+                    greeting = "Happy Chhath Puja Boss! May Lord Surya bless you with vitality and peace."
+                )
+            }
             // Default Classic S.T.A.R. Labs Sci-Fi Hologram
             else -> {
                 FestivalTheme(
