@@ -20,6 +20,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -350,6 +351,72 @@ fun GideonFaceView(
                             radius = 4f,
                             center = Offset(center.x - (radius + 8.dp.toPx()), center.y)
                         )
+                    } else if (activeFestival.festivalName == "Bhai Dooj") {
+                        // ── SACRED BLOOMING FLOWER PETALS MANDALA (Lotus/Rose Petals instead of circles) ──
+                        val numPetals = 16
+                        val petalRingRadius = radius + 8.dp.toPx()
+                        val petalLen = 15.dp.toPx()
+                        val petalW = 7.5.dp.toPx()
+
+                        for (i in 0 until numPetals) {
+                            val baseAngle = (i.toFloat() / numPetals) * 360f + (ringRotation1 * 0.35f)
+                            val rad = Math.toRadians(baseAngle.toDouble())
+                            val px = center.x + petalRingRadius * cos(rad).toFloat()
+                            val py = center.y + petalRingRadius * sin(rad).toFloat()
+
+                            withTransform({
+                                translate(px, py)
+                                rotate(degrees = baseAngle + 90f)
+                            }) {
+                                val petalPath = Path().apply {
+                                    moveTo(0f, -petalLen)
+                                    cubicTo(petalW * 1.35f, -petalLen * 0.45f, petalW * 0.95f, petalLen * 0.55f, 0f, petalLen * 0.85f)
+                                    cubicTo(-petalW * 0.95f, petalLen * 0.55f, -petalW * 1.35f, -petalLen * 0.45f, 0f, -petalLen)
+                                    close()
+                                }
+                                drawPath(
+                                    path = petalPath,
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            Color(0xFFFF4081).copy(alpha = 0.85f),
+                                            Color(0xFFD81B60).copy(alpha = 0.70f),
+                                            Color(0xFFFFD54F).copy(alpha = 0.50f)
+                                        )
+                                    )
+                                )
+                                drawPath(
+                                    path = petalPath,
+                                    color = Color(0xFFFFD54F).copy(alpha = 0.90f),
+                                    style = Stroke(width = 1.2f)
+                                )
+                            }
+                        }
+
+                        // Inner counter-rotating flower garland ring
+                        val numInnerPetals = 12
+                        val innerRingRadius = radius - 1.dp.toPx()
+                        for (i in 0 until numInnerPetals) {
+                            val baseAngle = (i.toFloat() / numInnerPetals) * 360f - (ringRotation2 * 0.25f)
+                            val rad = Math.toRadians(baseAngle.toDouble())
+                            val px = center.x + innerRingRadius * cos(rad).toFloat()
+                            val py = center.y + innerRingRadius * sin(rad).toFloat()
+
+                            withTransform({
+                                translate(px, py)
+                                rotate(degrees = baseAngle + 90f)
+                            }) {
+                                val innerPetalPath = Path().apply {
+                                    moveTo(0f, -petalLen * 0.65f)
+                                    cubicTo(petalW * 0.9f, -petalLen * 0.25f, petalW * 0.7f, petalLen * 0.35f, 0f, petalLen * 0.5f)
+                                    cubicTo(-petalW * 0.7f, petalLen * 0.35f, -petalW * 0.9f, -petalLen * 0.25f, 0f, -petalLen * 0.65f)
+                                    close()
+                                }
+                                drawPath(
+                                    path = innerPetalPath,
+                                    color = Color(0xFFFF80AB).copy(alpha = 0.65f)
+                                )
+                            }
+                        }
                     } else {
                         // Standard Cyberspace HUD Ring 1 (Dashed / Segmented)
                         drawCircle(
@@ -453,22 +520,24 @@ fun GideonFaceView(
                 ) {
                     if (activeFestival.festivalName == "Bhai Dooj") {
                         // ── TWO GIDEONS INSIDE A SINGLE CIRCLE: SISTER BLESSING & SHIELDING BROTHER ──
+                        val lotusArchShape = RoundedCornerShape(topStartPercent = 50, topEndPercent = 50, bottomStartPercent = 25, bottomEndPercent = 25)
+
                         Box(modifier = Modifier.fillMaxSize()) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .padding(horizontal = 4.dp),
+                                    .padding(horizontal = 6.dp),
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // 1. BROTHER GIDEON (Left, protected by Raksha Shield & Tilak)
+                                // 1. BROTHER GIDEON (Left, framed in Lotus Petal Arch & protected by Raksha Shield)
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .fillMaxHeight(0.88f)
-                                        .clip(CircleShape)
+                                        .fillMaxHeight(0.90f)
+                                        .clip(lotusArchShape)
                                         .border(
-                                            width = 2.dp,
+                                            width = 2.2.dp,
                                             brush = Brush.sweepGradient(
                                                 listOf(
                                                     Color(0xFFFFD54F).copy(alpha = shieldPulse),
@@ -476,7 +545,7 @@ fun GideonFaceView(
                                                     Color(0xFFFFD54F).copy(alpha = shieldPulse)
                                                 )
                                             ),
-                                            shape = CircleShape
+                                            shape = lotusArchShape
                                         )
                                 ) {
                                     Image(
@@ -511,14 +580,14 @@ fun GideonFaceView(
 
                                 Spacer(modifier = Modifier.width(6.dp))
 
-                                // 2. SISTER GIDEON (Right, female Gideon bestowing blessing)
+                                // 2. SISTER GIDEON (Right, female Gideon bestowing blessing in Lotus Petal Arch)
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .fillMaxHeight(0.88f)
-                                        .clip(CircleShape)
+                                        .fillMaxHeight(0.90f)
+                                        .clip(lotusArchShape)
                                         .border(
-                                            width = 2.dp,
+                                            width = 2.2.dp,
                                             brush = Brush.sweepGradient(
                                                 listOf(
                                                     Color(0xFFFF4081),
@@ -527,7 +596,7 @@ fun GideonFaceView(
                                                     Color(0xFFFF4081)
                                                 )
                                             ),
-                                            shape = CircleShape
+                                            shape = lotusArchShape
                                         )
                                 ) {
                                     Image(

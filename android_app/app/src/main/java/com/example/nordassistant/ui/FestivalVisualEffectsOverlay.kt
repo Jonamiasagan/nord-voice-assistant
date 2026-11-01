@@ -13,10 +13,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
 import kotlin.math.cos
 import kotlin.math.sin
@@ -54,7 +56,9 @@ data class FloatingPetal(
     val radiusX: Float,
     val radiusY: Float,
     val color: Color,
-    val phaseOffset: Float
+    val phaseOffset: Float,
+    val rotationSpeed: Float = 1.0f,
+    val isFullBlossom: Boolean = false
 )
 
 @Composable
@@ -307,15 +311,23 @@ fun FestivalVisualEffectsOverlay(
 
         ParticleEffectType.BHAI_DOOJ_ROSE_PETALS -> {
             val petals = remember {
-                List(32) { idx ->
+                List(36) { idx ->
                     val rnd = Random(idx * 101)
                     FloatingPetal(
                         xNorm = rnd.nextFloat(),
-                        speed = 0.28f + rnd.nextFloat() * 0.38f,
-                        radiusX = 9f + rnd.nextFloat() * 7f,
-                        radiusY = 16f + rnd.nextFloat() * 10f,
-                        color = if (idx % 3 == 0) Color(0xFFE91E63) else if (idx % 3 == 1) Color(0xFFFF4081) else Color(0xFFFF80AB),
-                        phaseOffset = rnd.nextFloat()
+                        speed = 0.22f + rnd.nextFloat() * 0.32f,
+                        radiusX = 13f + rnd.nextFloat() * 8f,
+                        radiusY = 20f + rnd.nextFloat() * 12f,
+                        color = when (idx % 5) {
+                            0 -> Color(0xFFD81B60) // Deep Rose Crimson
+                            1 -> Color(0xFFFF4081) // Radiant Pink
+                            2 -> Color(0xFFFF80AB) // Soft Blossom Pink
+                            3 -> Color(0xFFFF9800) // Saffron Marigold Petal
+                            else -> Color(0xFFFFD54F) // Golden Auspicious Petal
+                        },
+                        phaseOffset = rnd.nextFloat(),
+                        rotationSpeed = 0.6f + rnd.nextFloat() * 1.2f,
+                        isFullBlossom = (idx % 6 == 0) // Every 6th particle is a full 5-petal flower
                     )
                 }
             }
@@ -326,30 +338,96 @@ fun FestivalVisualEffectsOverlay(
 
                 petals.forEach { petal ->
                     val fallProg = (timeProg * petal.speed + petal.phaseOffset) % 1f
-                    val cx = petal.xNorm * w + sin(fallProg * 6f) * 32f
-                    val cy = fallProg * (h + 80f) - 40f
+                    val cx = petal.xNorm * w + sin(fallProg * 5f) * 36f
+                    val cy = fallProg * (h + 100f) - 50f
 
-                    val wobble = cos(fallProg * 8f + petal.phaseOffset * 4f)
-                    val rX = petal.radiusX * kotlin.math.abs(wobble).coerceAtLeast(0.25f)
+                    // 3D tumbling flutter
+                    val wobble = cos(fallProg * 6f + petal.phaseOffset * 5f)
+                    val scaleX = kotlin.math.abs(wobble).coerceAtLeast(0.3f)
+                    val rotAngle = (fallProg * 360f * petal.rotationSpeed + petal.phaseOffset * 360f) % 360f
 
-                    // Soft organic rose petal body
-                    drawOval(
-                        color = petal.color.copy(alpha = 0.85f),
-                        topLeft = Offset(cx - rX, cy - petal.radiusY),
-                        size = androidx.compose.ui.geometry.Size(rX * 2f, petal.radiusY * 2f)
-                    )
-                    // Delicate inner petal vein highlight
-                    drawOval(
-                        color = Color.White.copy(alpha = 0.35f),
-                        topLeft = Offset(cx - rX * 0.5f, cy - petal.radiusY * 0.6f),
-                        size = androidx.compose.ui.geometry.Size(rX, petal.radiusY * 1.2f),
-                        style = Stroke(width = 1.0f)
-                    )
+                    val rX = petal.radiusX
+                    val rY = petal.radiusY
+
+                    withTransform({
+                        translate(cx, cy)
+                        rotate(degrees = rotAngle)
+                        scale(scaleX = scaleX, scaleY = 1f)
+                    }) {
+                        if (petal.isFullBlossom) {
+                            // ── FULL 5-PETAL FLOWER BLOSSOM ──
+                            val blossomPetalRadiusX = rX * 0.65f
+                            val blossomPetalRadiusY = rY * 0.85f
+
+                            for (petalIdx in 0 until 5) {
+                                withTransform({
+                                    rotate(degrees = petalIdx * 72f)
+                                }) {
+                                    val petalPath = Path().apply {
+                                        moveTo(0f, 0f)
+                                        cubicTo(
+                                            blossomPetalRadiusX * 1.2f, -blossomPetalRadiusY * 0.4f,
+                                            blossomPetalRadiusX * 0.8f, -blossomPetalRadiusY * 0.95f,
+                                            0f, -blossomPetalRadiusY
+                                        )
+                                        cubicTo(
+                                            -blossomPetalRadiusX * 0.8f, -blossomPetalRadiusY * 0.95f,
+                                            -blossomPetalRadiusX * 1.2f, -blossomPetalRadiusY * 0.4f,
+                                            0f, 0f
+                                        )
+                                        close()
+                                    }
+                                    drawPath(
+                                        path = petalPath,
+                                        color = petal.color.copy(alpha = 0.90f)
+                                    )
+                                }
+                            }
+                            // Golden flower core center
+                            drawCircle(color = Color(0xFFFFD54F), radius = blossomPetalRadiusX * 0.55f)
+                            drawCircle(color = Color(0xFFFFF9C4), radius = blossomPetalRadiusX * 0.28f)
+                        } else {
+                            // ── INDIVIDUAL REALISTIC FLOWER PETAL (Rose / Lotus Petal) ──
+                            // Organic curved petal contour with pointed apex tip and heart-curved base
+                            val petalPath = Path().apply {
+                                moveTo(0f, -rY) // Pointed apex
+                                // Right flank curving down to base
+                                cubicTo(rX * 1.35f, -rY * 0.45f, rX * 1.10f, rY * 0.65f, 0f, rY)
+                                // Left flank curving back up to apex
+                                cubicTo(-rX * 1.10f, rY * 0.65f, -rX * 1.35f, -rY * 0.45f, 0f, -rY)
+                                close()
+                            }
+
+                            // Velvet petal gradient fill
+                            drawPath(
+                                path = petalPath,
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        petal.color.copy(alpha = 0.92f),
+                                        Color(0xFF880E4F).copy(alpha = 0.85f)
+                                    ),
+                                    center = Offset(0f, rY * 0.25f),
+                                    radius = rY * 1.3f
+                                )
+                            )
+
+                            // Delicate central petal vein
+                            val veinPath = Path().apply {
+                                moveTo(0f, rY * 0.85f)
+                                quadraticTo(rX * 0.15f * sin(fallProg * 4f), 0f, 0f, -rY * 0.70f)
+                            }
+                            drawPath(
+                                path = veinPath,
+                                color = Color.White.copy(alpha = 0.40f),
+                                style = Stroke(width = 1.2f)
+                            )
+                        }
+                    }
 
                     // Twinkling golden Akshat grain sparkle drifting alongside
                     if (kotlin.math.abs(wobble) > 0.4f) {
                         drawCircle(
-                            color = Color(0xFFFFFDE7).copy(alpha = 0.9f),
+                            color = Color(0xFFFFFDE7).copy(alpha = 0.85f),
                             radius = 2.2f,
                             center = Offset(cx + rX + 6f, cy - 4f)
                         )
