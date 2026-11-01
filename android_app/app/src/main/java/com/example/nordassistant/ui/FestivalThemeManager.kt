@@ -14,6 +14,7 @@ data class FestivalTheme(
     val bgTopColor: Color,
     val bgBottomColor: Color,
     val dotMatrixColor: Color,
+    val effectType: ParticleEffectType = ParticleEffectType.NONE,
     val greeting: String
 )
 
@@ -40,6 +41,7 @@ object FestivalThemeManager {
                     bgTopColor = Color(0xFF2E1C00), // Rich dark turmeric ambient glow
                     bgBottomColor = Color(0xFF260505), // Rich dark crimson ambient glow
                     dotMatrixColor = Color(0xFFFFD700),
+                    effectType = ParticleEffectType.RAJYOTSAVA_CONFETTI,
                     greeting = "ಶುಭ ಕನ್ನಡ ರಾಜ್ಯೋತ್ಸವ! Happy Kannada Rajyotsava Boss!"
                 )
             }
@@ -54,6 +56,7 @@ object FestivalThemeManager {
                     bgTopColor = Color(0xFF241B03),
                     bgBottomColor = Color(0xFF1B0F03),
                     dotMatrixColor = Color(0xFFFFD700),
+                    effectType = ParticleEffectType.DHANTERAS_GOLD_COINS,
                     greeting = "Happy Dhanteras Boss! Wishing you boundless prosperity."
                 )
             }
@@ -68,6 +71,7 @@ object FestivalThemeManager {
                     bgTopColor = Color(0xFF1D0B2B), // Deep twilight ambient
                     bgBottomColor = Color(0xFF261002), // Warm saffron ambient
                     dotMatrixColor = Color(0xFFFF9933),
+                    effectType = ParticleEffectType.NARAKA_AARTI_FLAMES,
                     greeting = "Happy Naraka Chaturdashi Boss! May all darkness be dispelled."
                 )
             }
@@ -82,6 +86,7 @@ object FestivalThemeManager {
                     bgTopColor = Color(0xFF2A1502), // Warm glowing diya darkness
                     bgBottomColor = Color(0xFF200707),
                     dotMatrixColor = Color(0xFFF39C12),
+                    effectType = ParticleEffectType.DIWALI_FIREWORKS,
                     greeting = "Happy Deepavali Boss! May your life be illuminated with light."
                 )
             }
@@ -96,6 +101,7 @@ object FestivalThemeManager {
                     bgTopColor = Color(0xFF041F10),
                     bgBottomColor = Color(0xFF1F1C02),
                     dotMatrixColor = Color(0xFF2ECC71),
+                    effectType = ParticleEffectType.NARAKA_AARTI_FLAMES,
                     greeting = "Happy Govardhan Puja and Annakut Boss!"
                 )
             }
@@ -110,6 +116,7 @@ object FestivalThemeManager {
                     bgTopColor = Color(0xFF240608),
                     bgBottomColor = Color(0xFF1A0A17),
                     dotMatrixColor = Color(0xFFFF7675),
+                    effectType = ParticleEffectType.BHAI_DOOJ_ROSE_PETALS,
                     greeting = "Happy Bhai Dooj Boss!"
                 )
             }
@@ -124,6 +131,7 @@ object FestivalThemeManager {
                     bgTopColor = Color(0xFF2E1500), // Dawn Sun glow
                     bgBottomColor = Color(0xFF1A0C00), // River Ghat bank
                     dotMatrixColor = Color(0xFFFFB74D),
+                    effectType = ParticleEffectType.NARAKA_AARTI_FLAMES,
                     greeting = "Happy Chhath Puja Boss! May Lord Surya bless you with vitality and peace."
                 )
             }

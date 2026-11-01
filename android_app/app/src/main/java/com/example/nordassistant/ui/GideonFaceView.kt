@@ -174,6 +174,12 @@ fun GideonFaceView(
             }
         }
 
+        // ── 1.5 DYNAMIC FESTIVAL VISUAL EFFECTS (Fireworks, Coins, Aarti Flames, Petals) ──
+        FestivalVisualEffectsOverlay(
+            effectType = activeFestival.effectType,
+            modifier = Modifier.fillMaxSize()
+        )
+
         // ── 2. CENTER HOLOGRAPHIC GIDEON AVATAR & HUD ──
         Column(
             modifier = Modifier
