@@ -311,20 +311,9 @@ class DevilSentryService : Service() {
         val text = rawText.trim()
         if (text.isEmpty() || isPausedForConversation) return
 
-        Log.i(TAG, "Sentry heard: '$text', audioBytes=${pcmAudio.size}")
+        Log.i(TAG, "Sentry heard: '$text'")
 
-        // Strict Voice Biometrics Clearance
-        val bossSecurity = BossSecurityManager.getInstance(this@DevilSentryService)
-        if (bossSecurity.isBossVoiceprintValid()) {
-            val auth = bossSecurity.verifySpeaker(pcmAudio, threshold = 0.65f)
-            Log.i(TAG, "Sentry Voice Biometrics: isAuthorized=${auth.isAuthorized}, isBoss=${auth.isBoss}, isGuest=${auth.isGuest}, similarity=${(auth.similarity * 100).toInt()}%")
-            if (!auth.isAuthorized) {
-                Log.w(TAG, "⛔ Sentry Voice Mismatch: ${(auth.similarity * 100).toInt()}% vs threshold 65%. Unauthorized speaker!")
-                com.example.nordassistant.data.DevilVoiceSpeaker.speak(this@DevilSentryService, "You are not my Boss. Access denied.")
-                scheduleRestart(800L)
-                return
-            }
-        }
+        // Voice biometrics gate removed — DEVIL responds to all voices freely.
 
         // 1. Check if Boss revoked Sentry Mode
         if (revokeSentryRegex.containsMatchIn(text) || DevilProtocolManager.isSentryModeRevokeTrigger(text)) {
@@ -332,8 +321,6 @@ class DevilSentryService : Service() {
             val revokeIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                 putExtra("command", "revoke sentry mode")
-                putExtra("EXTRA_VOICE_VERIFIED", true)
-                if (pcmAudio.isNotEmpty()) putExtra("EXTRA_PCM_AUDIO", pcmAudio)
             }
             startActivity(revokeIntent)
             stopSentryMode()
@@ -356,8 +343,6 @@ class DevilSentryService : Service() {
             val switchIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                 putExtra("command", text)
-                putExtra("EXTRA_VOICE_VERIFIED", true)
-                if (pcmAudio.isNotEmpty()) putExtra("EXTRA_PCM_AUDIO", pcmAudio)
             }
             startActivity(switchIntent)
             if (DevilProtocolManager.isBossModeRevocation(text)) {
@@ -383,8 +368,6 @@ class DevilSentryService : Service() {
             val actionIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                 putExtra("command", text)
-                putExtra("EXTRA_VOICE_VERIFIED", true)
-                if (pcmAudio.isNotEmpty()) putExtra("EXTRA_PCM_AUDIO", pcmAudio)
             }
             startActivity(actionIntent)
             return
@@ -412,8 +395,6 @@ class DevilSentryService : Service() {
 
             val wakeIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                putExtra("EXTRA_VOICE_VERIFIED", true)
-                if (pcmAudio.isNotEmpty()) putExtra("EXTRA_PCM_AUDIO", pcmAudio)
                 if (cleaned.length >= 2 && !cleaned.equals("devil", ignoreCase = true) && !cleaned.equals("deil", ignoreCase = true)) {
                     putExtra("command", cleaned)
                 } else {

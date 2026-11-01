@@ -236,8 +236,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val isWake = intent?.getBooleanExtra("EXTRA_WAKE_DEVIL", false) ?: false
         val cmd = intent?.getStringExtra("query") ?: intent?.getStringExtra("command")
         val action = intent?.getStringExtra("EXTRA_ACTION")
-        val isVoiceVerified = intent?.getBooleanExtra("EXTRA_VOICE_VERIFIED", false) ?: false
-        val pcmAudio = intent?.getByteArrayExtra("EXTRA_PCM_AUDIO")
         intent?.removeExtra("EXTRA_WAKE_DEVIL")
         intent?.removeExtra("query")
         intent?.removeExtra("command")
@@ -253,7 +251,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 handleDarwinboxAttendance(DevilAccessibilityService.DarwinboxAction.CHECK_OUT)
             } else if (!cmd.isNullOrBlank()) {
                 refreshConversationSession()
-                processCommand(cmd, pcmAudio, isVoiceVerified)
+                processCommand(cmd)
             } else if (isWake) {
                 refreshConversationSession()
                 speakResponse(getPresenceAndListeningResponse(), continueConversation = true)
@@ -698,7 +696,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     transcript = text
                     assistantState = AssistantState.THINKING
                     refreshConversationSession() // Reset timer on user speech!
-                    processCommand(text, pcmAudio)
+                    processCommand(text)
                 } else {
                     if (inConversationSession && System.currentTimeMillis() < conversationSessionEndTime) {
                         assistantState = AssistantState.IDLE
@@ -1416,9 +1414,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun processCommand(command: String, pcmAudio: ByteArray? = null, isVoiceVerified: Boolean = false) {
+    private fun processCommand(command: String) {
         val trimmed = normalizeSpokenCommand(command)
-        Log.i("MainActivity", "COMMAND RECEIVED: '$command' -> TRIMMED: '$trimmed' (voiceVerified=$isVoiceVerified, audioBytes=${pcmAudio?.size ?: 0})")
+        Log.i("MainActivity", "COMMAND RECEIVED: '$command' -> TRIMMED: '$trimmed'")
         lastUserCommandForTurn = trimmed
         isHandlingQueryBackend = false
 
@@ -1432,21 +1430,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             return
         }
 
-        // ── Voice Biometrics & Boss Clearance Enforcement ──
-        if (!isVoiceVerified && bossSecurity.isBossVoiceprintValid()) {
-            val audioBytes = pcmAudio ?: ByteArray(0)
-            val auth = bossSecurity.verifySpeaker(audioBytes, threshold = 0.65f)
-            Log.i("MainActivity", "Voice Biometrics Verification: authorized=${auth.isAuthorized}, isBoss=${auth.isBoss}, isGuest=${auth.isGuest}, similarity=${(auth.similarity * 100).toInt()}%, reason=${auth.reason}")
-
-            if (!auth.isAuthorized) {
-                Log.w("MainActivity", "⛔ ACCESS DENIED: Stranger voice detected! Similarity: ${(auth.similarity * 100).toInt()}% (Threshold: 65%)")
-                assistantState = AssistantState.IDLE
-                transcript = "Access Denied // Voice Mismatch: You are not my Boss."
-                inConversationSession = false
-                speakResponse("You are not my Boss. Access denied.")
-                return
-            }
-        }
+        // Voice biometrics gate removed — DEVIL responds to all voices freely.
         if (trimmed.contains(Regex("(?i)\\b(is\\s*(my\\s*)?voice\\s*(calibrated|enrolled|registered)|voice\\s*(calibration|biometric)\\s*status|check\\s*(voice\\s*)?calibration|did\\s*i\\s*calibrate\\s*(my\\s*)?voice)\\b"))) {
             if (bossSecurity.isBossVoiceprintValid()) {
                 speakResponse("Yes Boss, your acoustic voiceprint is calibrated and securely enrolled with DEVIL.", continueConversation = true)
