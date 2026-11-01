@@ -15,7 +15,8 @@ data class FestivalTheme(
     val bgBottomColor: Color,
     val dotMatrixColor: Color,
     val effectType: ParticleEffectType = ParticleEffectType.NONE,
-    val greeting: String
+    val greeting: String,
+    val purposeBrief: String = ""
 )
 
 object FestivalThemeManager {
@@ -37,7 +38,8 @@ object FestivalThemeManager {
             bgBottomColor = Color(0xFF200707),
             dotMatrixColor = Color(0xFFF39C12),
             effectType = ParticleEffectType.DIWALI_FIREWORKS,
-            greeting = "Happy Deepavali Boss! May your life be illuminated with joy and prosperity."
+            greeting = "Happy Deepavali Boss! May your life be illuminated with joy and prosperity.",
+            purposeBrief = "PURPOSE: Celebrates Lord Rama's triumphant return to Ayodhya and Goddess Lakshmi's blessing of inner light, victory of Dharma over adharma, dispelling ignorance through glowing diyas and crackers."
         )
     }
 
@@ -52,7 +54,8 @@ object FestivalThemeManager {
             bgBottomColor = Color(0xFF160E02),
             dotMatrixColor = Color(0xFFFFD700),
             effectType = ParticleEffectType.DHANTERAS_GOLD_COINS,
-            greeting = "Happy Dhanteras Boss! Wishing you boundless prosperity and abundance."
+            greeting = "Happy Dhanteras Boss! Wishing you boundless prosperity and abundance.",
+            purposeBrief = "PURPOSE: Welcomes Lord Dhanvantari (father of Ayurveda & cosmic healer) with the Amrit Kalash of health, honoring Goddess Lakshmi & Lord Kuber to safeguard the home from untimely harm."
         )
     }
 
@@ -67,7 +70,8 @@ object FestivalThemeManager {
             bgBottomColor = Color(0xFF261002), // Warm saffron ambient
             dotMatrixColor = Color(0xFFFF9933),
             effectType = ParticleEffectType.NARAKA_AARTI_FLAMES,
-            greeting = "Happy Naraka Chaturdashi Boss! May all darkness be dispelled."
+            greeting = "Happy Naraka Chaturdashi Boss! May all darkness be dispelled.",
+            purposeBrief = "PURPOSE: Commemorates Lord Krishna & Satyabhama slaying the tyrant Narakasura to liberate 16,000 souls; celebrated with sacred pre-dawn Abhyanga Snan bath and Aarti to vanquish evil."
         )
     }
 
@@ -82,7 +86,8 @@ object FestivalThemeManager {
             bgBottomColor = Color(0xFF1A0A17),
             dotMatrixColor = Color(0xFFFF7675),
             effectType = ParticleEffectType.BHAI_DOOJ_ROSE_PETALS,
-            greeting = "Happy Bhai Dooj Boss! Cherishing the sacred bond of love and protection."
+            greeting = "Happy Bhai Dooj Boss! Cherishing the sacred bond of love and protection.",
+            purposeBrief = "PURPOSE: Gideon brother who receives a tilak from his Gideon sister on this day will be granted protection from untimely death or spiritual harm, honoring Yama & Yamuna's sacred eternal bond."
         )
     }
 

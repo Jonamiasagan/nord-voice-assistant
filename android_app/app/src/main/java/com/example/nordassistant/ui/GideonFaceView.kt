@@ -369,85 +369,155 @@ fun GideonFaceView(
                 }
 
                 // Gideon Face Image in Hologram Circular Frame (Dynamic Festival Theme)
-                Box(
-                    modifier = Modifier
-                        .size(240.dp)
-                        .clip(CircleShape)
-                        .border(
-                            width = 3.dp,
-                            brush = if (activeFestival.festivalName.contains("Kannada", ignoreCase = true)) {
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color(0xFFFFD700), // Pure Yellow Top
-                                        Color(0xFFFFD700),
-                                        Color(0xFFD32F2F), // Pure Red Bottom
-                                        Color(0xFFD32F2F)
-                                    )
+                if (activeFestival.festivalName == "Bhai Dooj") {
+                    // Twin Holograms: Brother Gideon & Sister Gideon side-by-side
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Brother Gideon (Wearing Tilak)
+                        Box(
+                            modifier = Modifier
+                                .size(145.dp)
+                                .clip(CircleShape)
+                                .border(
+                                    width = 2.dp,
+                                    brush = Brush.sweepGradient(
+                                        listOf(
+                                            activeFestival.primaryRingColor,
+                                            activeFestival.secondaryRingColor,
+                                            activeFestival.primaryRingColor
+                                        )
+                                    ),
+                                    shape = CircleShape
                                 )
-                            } else {
-                                Brush.sweepGradient(
-                                    listOf(
-                                        activeFestival.primaryRingColor,
-                                        activeFestival.secondaryRingColor,
-                                        activeFestival.primaryRingColor.copy(alpha = 0.7f),
-                                        activeFestival.primaryRingColor
-                                    )
-                                )
-                            },
-                            shape = CircleShape
-                        )
-                ) {
-                    Image(
-                        painter = painterResource(id = activeFestival.drawableResId),
-                        contentDescription = "Gideon AI Hologram Face - ${activeFestival.festivalName}",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .scale(hologramPulse)
-                    )
+                        ) {
+                            Image(
+                                painter = painterResource(id = activeFestival.drawableResId),
+                                contentDescription = "Brother Gideon",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .scale(hologramPulse)
+                            )
+                        }
 
-                    // Subtle Holographic Overlay Tint (transparent to preserve vibrant turban & clothes)
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        // Sister Gideon (Applying Protection Blessing)
+                        Box(
+                            modifier = Modifier
+                                .size(145.dp)
+                                .clip(CircleShape)
+                                .border(
+                                    width = 2.dp,
+                                    brush = Brush.sweepGradient(
+                                        listOf(
+                                            Color(0xFFFF4081),
+                                            Color(0xFFFFD54F),
+                                            Color(0xFFFF4081)
+                                        )
+                                    ),
+                                    shape = CircleShape
+                                )
+                        ) {
+                            Image(
+                                painter = painterResource(id = activeFestival.drawableResId),
+                                contentDescription = "Sister Gideon",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .scale(hologramPulse)
+                            )
+                            // Soft protective pink aura overlay
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFFE91E63).copy(alpha = 0.12f))
+                            )
+                        }
+                    }
+                } else {
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        activeFestival.primaryRingColor.copy(alpha = 0.08f),
-                                        Color.Transparent,
-                                        activeFestival.secondaryRingColor.copy(alpha = 0.10f)
+                            .size(240.dp)
+                            .clip(CircleShape)
+                            .border(
+                                width = 3.dp,
+                                brush = if (activeFestival.festivalName.contains("Kannada", ignoreCase = true)) {
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            Color(0xFFFFD700), // Pure Yellow Top
+                                            Color(0xFFFFD700),
+                                            Color(0xFFD32F2F), // Pure Red Bottom
+                                            Color(0xFFD32F2F)
+                                        )
+                                    )
+                                } else {
+                                    Brush.sweepGradient(
+                                        listOf(
+                                            activeFestival.primaryRingColor,
+                                            activeFestival.secondaryRingColor,
+                                            activeFestival.primaryRingColor.copy(alpha = 0.7f),
+                                            activeFestival.primaryRingColor
+                                        )
+                                    )
+                                },
+                                shape = CircleShape
+                            )
+                    ) {
+                        Image(
+                            painter = painterResource(id = activeFestival.drawableResId),
+                            contentDescription = "Gideon AI Hologram Face - ${activeFestival.festivalName}",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .scale(hologramPulse)
+                        )
+
+                        // Subtle Holographic Overlay Tint (transparent to preserve vibrant turban & clothes)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            activeFestival.primaryRingColor.copy(alpha = 0.08f),
+                                            Color.Transparent,
+                                            activeFestival.secondaryRingColor.copy(alpha = 0.10f)
+                                        )
                                     )
                                 )
-                            )
-                    )
-
-                    // Sweeping Holographic Scanline Overlay
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val scanlineY = size.height * scanlineOffset
-                        drawLine(
-                            color = Color(0xFFE0F7FA).copy(alpha = 0.75f),
-                            start = Offset(0f, scanlineY),
-                            end = Offset(size.width, scanlineY),
-                            strokeWidth = 3.5f
-                        )
-                        drawLine(
-                            color = Color(0xFF00E5FF).copy(alpha = 0.35f),
-                            start = Offset(0f, (scanlineY - 6.dp.toPx()).coerceAtLeast(0f)),
-                            end = Offset(size.width, (scanlineY - 6.dp.toPx()).coerceAtLeast(0f)),
-                            strokeWidth = 8f
                         )
 
-                        // Subtle horizontal scanline raster across the hologram
-                        val rasterStep = 6.dp.toPx()
-                        var currY = 0f
-                        while (currY < size.height) {
+                        // Sweeping Holographic Scanline Overlay
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val scanlineY = size.height * scanlineOffset
                             drawLine(
-                                color = Color(0xFF001020).copy(alpha = 0.22f),
-                                start = Offset(0f, currY),
-                                end = Offset(size.width, currY),
-                                strokeWidth = 1.2f
+                                color = Color(0xFFE0F7FA).copy(alpha = 0.75f),
+                                start = Offset(0f, scanlineY),
+                                end = Offset(size.width, scanlineY),
+                                strokeWidth = 3.5f
                             )
-                            currY += rasterStep
+                            drawLine(
+                                color = Color(0xFF00E5FF).copy(alpha = 0.35f),
+                                start = Offset(0f, (scanlineY - 6.dp.toPx()).coerceAtLeast(0f)),
+                                end = Offset(size.width, (scanlineY - 6.dp.toPx()).coerceAtLeast(0f)),
+                                strokeWidth = 8f
+                            )
+
+                            // Subtle horizontal scanline raster across the hologram
+                            val rasterStep = 6.dp.toPx()
+                            var currY = 0f
+                            while (currY < size.height) {
+                                drawLine(
+                                    color = Color(0xFF001020).copy(alpha = 0.22f),
+                                    start = Offset(0f, currY),
+                                    end = Offset(size.width, currY),
+                                    strokeWidth = 1.2f
+                                )
+                                currY += rasterStep
+                            }
                         }
                     }
                 }
@@ -550,6 +620,20 @@ fun GideonFaceView(
                             textAlign = TextAlign.Start,
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        if (activeFestival.purposeBrief.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = activeFestival.purposeBrief,
+                                fontFamily = FontFamily.SansSerif,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Normal,
+                                lineHeight = 16.sp,
+                                color = activeFestival.accentColor.copy(alpha = 0.90f),
+                                textAlign = TextAlign.Start,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
             }
