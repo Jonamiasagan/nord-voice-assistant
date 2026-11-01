@@ -194,12 +194,12 @@ fun FestivalVisualEffectsOverlay(
 
         ParticleEffectType.DHANTERAS_GOLD_COINS -> {
             val coins = remember {
-                List(22) { idx ->
+                List(28) { idx ->
                     val rnd = Random(idx * 79)
                     DriftingCoin(
                         xNorm = rnd.nextFloat(),
-                        speed = 0.5f + rnd.nextFloat() * 0.7f,
-                        size = 12f + rnd.nextFloat() * 14f,
+                        speed = 0.35f + rnd.nextFloat() * 0.45f,
+                        size = 14f + rnd.nextFloat() * 12f,
                         phaseOffset = rnd.nextFloat()
                     )
                 }
@@ -211,28 +211,48 @@ fun FestivalVisualEffectsOverlay(
 
                 coins.forEach { coin ->
                     val yProgress = (timeProg * coin.speed + coin.phaseOffset) % 1f
-                    val cx = coin.xNorm * w + sin(yProgress * 12f) * 16f
+                    val cx = coin.xNorm * w + sin(yProgress * 8f) * 25f
                     val cy = yProgress * (h + 80f) - 40f
 
-                    // 3D spinning aspect ratio
-                    val spinScale = cos(yProgress * 18f + coin.phaseOffset * 6f)
-                    val rX = coin.size * kotlin.math.abs(spinScale).coerceAtLeast(0.2f)
+                    // 3D smooth horizontal tumbling
+                    val spinScale = cos(yProgress * 10f + coin.phaseOffset * 4f)
+                    val rX = coin.size * kotlin.math.abs(spinScale).coerceAtLeast(0.18f)
                     val rY = coin.size
 
-                    // Outer golden coin rim
+                    // Outer golden coin body
                     drawOval(
-                        color = Color(0xFFFFD700).copy(alpha = 0.85f),
+                        color = Color(0xFFFFD700).copy(alpha = 0.92f),
                         topLeft = Offset(cx - rX, cy - rY),
                         size = androidx.compose.ui.geometry.Size(rX * 2f, rY * 2f),
                         style = Fill
                     )
-                    // Inner metallic shine
+                    // Inner minted coin ring
                     drawOval(
-                        color = Color(0xFFFFF9C4).copy(alpha = 0.95f),
-                        topLeft = Offset(cx - rX * 0.65f, cy - rY * 0.65f),
-                        size = androidx.compose.ui.geometry.Size(rX * 1.3f, rY * 1.3f),
-                        style = Stroke(width = 1.8f)
+                        color = Color(0xFFB78103).copy(alpha = 0.75f),
+                        topLeft = Offset(cx - rX * 0.72f, cy - rY * 0.72f),
+                        size = androidx.compose.ui.geometry.Size(rX * 1.44f, rY * 1.44f),
+                        style = Stroke(width = 2.0f)
                     )
+                    // Gleaming specular reflection on face
+                    if (kotlin.math.abs(spinScale) > 0.4f) {
+                        drawOval(
+                            color = Color(0xFFFFFDE7).copy(alpha = 0.85f),
+                            topLeft = Offset(cx - rX * 0.4f, cy - rY * 0.45f),
+                            size = androidx.compose.ui.geometry.Size(rX * 0.7f, rY * 0.5f),
+                            style = Fill
+                        )
+                    }
+
+                    // Floating golden sparkle star beside drifting coins
+                    if (yProgress in 0.2f..0.8f && coin.size > 20f) {
+                        val sparkX = cx + cos(yProgress * 15f) * (rX + 16f)
+                        val sparkY = cy + sin(yProgress * 15f) * 12f
+                        drawCircle(
+                            color = Color(0xFFFFF9C4).copy(alpha = 0.9f),
+                            radius = 2.4f,
+                            center = Offset(sparkX, sparkY)
+                        )
+                    }
                 }
             }
         }

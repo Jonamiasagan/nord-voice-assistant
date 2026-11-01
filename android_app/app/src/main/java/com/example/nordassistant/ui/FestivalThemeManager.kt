@@ -21,10 +21,88 @@ data class FestivalTheme(
 object FestivalThemeManager {
 
     /**
-     * Resolves the active festival theme dynamically based on current date.
-     * Includes custom background gradients, dot-matrix tints, and accent colors.
+     * Set this preview flag to force-preview any festival anytime!
+     * Null = Automatic calendar resolution.
+     */
+    var previewFestival: String? = "Dhanteras"
+
+    fun getDiwaliTheme(): FestivalTheme {
+        return FestivalTheme(
+            festivalName = "Deepavali",
+            drawableResId = R.drawable.gideon_diwali,
+            primaryRingColor = Color(0xFFF39C12), // Deep Diya Gold
+            secondaryRingColor = Color(0xFFE74C3C), // Festive Vermilion
+            accentColor = Color(0xFFFFC107),
+            bgTopColor = Color(0xFF2A1502), // Warm glowing diya darkness
+            bgBottomColor = Color(0xFF200707),
+            dotMatrixColor = Color(0xFFF39C12),
+            effectType = ParticleEffectType.DIWALI_FIREWORKS,
+            greeting = "Happy Deepavali Boss! May your life be illuminated with joy and prosperity."
+        )
+    }
+
+    fun getDhanterasTheme(): FestivalTheme {
+        return FestivalTheme(
+            festivalName = "Dhanteras",
+            drawableResId = R.drawable.gideon_dhanteras,
+            primaryRingColor = Color(0xFFFFD700), // Brass Gold
+            secondaryRingColor = Color(0xFFE67E22), // Copper Ochre
+            accentColor = Color(0xFFF1C40F),
+            bgTopColor = Color(0xFF281C02), // Deep opulent gold aura
+            bgBottomColor = Color(0xFF160E02),
+            dotMatrixColor = Color(0xFFFFD700),
+            effectType = ParticleEffectType.DHANTERAS_GOLD_COINS,
+            greeting = "Happy Dhanteras Boss! Wishing you boundless prosperity and abundance."
+        )
+    }
+
+    fun getNarakaChaturdashiTheme(): FestivalTheme {
+        return FestivalTheme(
+            festivalName = "Naraka Chaturdashi",
+            drawableResId = R.drawable.gideon_naraka_chaturdashi,
+            primaryRingColor = Color(0xFFFF9933), // Electric Saffron
+            secondaryRingColor = Color(0xFF8E44AD), // Twilight Purple
+            accentColor = Color(0xFFFFA726),
+            bgTopColor = Color(0xFF1D0B2B), // Deep twilight ambient
+            bgBottomColor = Color(0xFF261002), // Warm saffron ambient
+            dotMatrixColor = Color(0xFFFF9933),
+            effectType = ParticleEffectType.NARAKA_AARTI_FLAMES,
+            greeting = "Happy Naraka Chaturdashi Boss! May all darkness be dispelled."
+        )
+    }
+
+    fun getBhaiDoojTheme(): FestivalTheme {
+        return FestivalTheme(
+            festivalName = "Bhai Dooj",
+            drawableResId = R.drawable.gideon_bhai_dooj,
+            primaryRingColor = Color(0xFFE74C3C), // Roli Crimson
+            secondaryRingColor = Color(0xFFFF7675), // Rose Pink
+            accentColor = Color(0xFFFF5252),
+            bgTopColor = Color(0xFF240608),
+            bgBottomColor = Color(0xFF1A0A17),
+            dotMatrixColor = Color(0xFFFF7675),
+            effectType = ParticleEffectType.BHAI_DOOJ_ROSE_PETALS,
+            greeting = "Happy Bhai Dooj Boss! Cherishing the sacred bond of love and protection."
+        )
+    }
+
+    /**
+     * Resolves the active festival theme dynamically based on current date (or preview override).
      */
     fun getActiveFestivalTheme(): FestivalTheme {
+        if (previewFestival == "Deepavali") {
+            return getDiwaliTheme()
+        }
+        if (previewFestival == "Dhanteras") {
+            return getDhanterasTheme()
+        }
+        if (previewFestival == "Naraka Chaturdashi") {
+            return getNarakaChaturdashiTheme()
+        }
+        if (previewFestival == "Bhai Dooj") {
+            return getBhaiDoojTheme()
+        }
+
         val cal = Calendar.getInstance()
         val month = cal.get(Calendar.MONTH) // 0-based: 0 = Jan, 10 = Nov
         val day = cal.get(Calendar.DAY_OF_MONTH)
@@ -77,18 +155,7 @@ object FestivalThemeManager {
             }
             // Deepavali / Main Diwali: November 8 (2026)
             month == Calendar.NOVEMBER && day == 8 -> {
-                FestivalTheme(
-                    festivalName = "Deepavali",
-                    drawableResId = R.drawable.gideon_diwali,
-                    primaryRingColor = Color(0xFFF39C12), // Deep Diya Gold
-                    secondaryRingColor = Color(0xFFE74C3C), // Festive Vermilion
-                    accentColor = Color(0xFFFFC107),
-                    bgTopColor = Color(0xFF2A1502), // Warm glowing diya darkness
-                    bgBottomColor = Color(0xFF200707),
-                    dotMatrixColor = Color(0xFFF39C12),
-                    effectType = ParticleEffectType.DIWALI_FIREWORKS,
-                    greeting = "Happy Deepavali Boss! May your life be illuminated with light."
-                )
+                getDiwaliTheme()
             }
             // Govardhan Puja: November 10 (2026)
             month == Calendar.NOVEMBER && day == 10 -> {
