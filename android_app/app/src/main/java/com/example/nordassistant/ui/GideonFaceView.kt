@@ -58,6 +58,7 @@ fun GideonFaceView(
     securityStatus: String = "DEVIL // BOSS SECURED",
     modifier: Modifier = Modifier
 ) {
+    val activeFestival = remember { FestivalThemeManager.getActiveFestivalTheme() }
     val infiniteTransition = rememberInfiniteTransition(label = "gideon_animations")
 
     // Slow ambient hologram rotation
@@ -319,7 +320,7 @@ fun GideonFaceView(
                     }
                 }
 
-                // Gideon Face Image in Hologram Circular Frame
+                // Gideon Face Image in Hologram Circular Frame (Dynamic Festival Theme)
                 Box(
                     modifier = Modifier
                         .size(240.dp)
@@ -328,34 +329,34 @@ fun GideonFaceView(
                             width = 2.5.dp,
                             brush = Brush.sweepGradient(
                                 listOf(
-                                    Color(0xFF00E5FF),
-                                    Color(0xFF0091EA),
-                                    Color(0xFF80D8FF),
-                                    Color(0xFF00E5FF)
+                                    activeFestival.primaryRingColor,
+                                    activeFestival.secondaryRingColor,
+                                    activeFestival.primaryRingColor.copy(alpha = 0.7f),
+                                    activeFestival.primaryRingColor
                                 )
                             ),
                             shape = CircleShape
                         )
                 ) {
                     Image(
-                        painter = painterResource(id = R.drawable.gideon_face_sq),
-                        contentDescription = "Gideon AI Hologram Face",
+                        painter = painterResource(id = activeFestival.drawableResId),
+                        contentDescription = "Gideon AI Hologram Face - ${activeFestival.festivalName}",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxSize()
                             .scale(hologramPulse)
                     )
 
-                    // Holographic Sci-Fi Cyan Overlay Tint
+                    // Holographic Sci-Fi Overlay Tint (blends festival palette with hologram aesthetic)
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
                                     colors = listOf(
-                                        Color(0x3300E5FF),
+                                        activeFestival.primaryRingColor.copy(alpha = 0.20f),
                                         Color(0x1000B0FF),
-                                        Color(0x440052CC)
+                                        activeFestival.secondaryRingColor.copy(alpha = 0.25f)
                                     )
                                 )
                             )
