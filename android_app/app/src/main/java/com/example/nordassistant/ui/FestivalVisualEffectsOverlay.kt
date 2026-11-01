@@ -275,13 +275,13 @@ fun FestivalVisualEffectsOverlay(
 
         ParticleEffectType.RAJYOTSAVA_CONFETTI -> {
             val ribbons = remember {
-                List(26) { idx ->
+                List(40) { idx ->
                     val rnd = Random(idx * 67)
                     FloatingPetal(
                         xNorm = rnd.nextFloat(),
-                        speed = 0.5f + rnd.nextFloat() * 0.6f,
-                        radiusX = 4f + rnd.nextFloat() * 3f,
-                        radiusY = 14f + rnd.nextFloat() * 8f,
+                        speed = 0.6f + rnd.nextFloat() * 0.8f,
+                        radiusX = 8f + rnd.nextFloat() * 6f,
+                        radiusY = 22f + rnd.nextFloat() * 14f,
                         color = if (idx % 2 == 0) Color(0xFFFFD700) else Color(0xFFD32F2F),
                         phaseOffset = rnd.nextFloat()
                     )
@@ -294,16 +294,25 @@ fun FestivalVisualEffectsOverlay(
 
                 ribbons.forEach { ribbon ->
                     val fallProg = (timeProg * ribbon.speed + ribbon.phaseOffset) % 1f
-                    val cx = ribbon.xNorm * w + sin(fallProg * 10f) * 24f
-                    val cy = fallProg * (h + 60f) - 30f
+                    val cx = ribbon.xNorm * w + sin(fallProg * 8f) * 35f
+                    val cy = fallProg * (h + 80f) - 40f
 
-                    val rotationProg = (fallProg * 15f + ribbon.phaseOffset * 5f)
+                    val rotationProg = (fallProg * 12f + ribbon.phaseOffset * 5f)
                     val scaleX = cos(rotationProg)
 
+                    // Draw distinct fluttering ribbon with border for contrast
+                    val rWidth = ribbon.radiusX * kotlin.math.abs(scaleX).coerceAtLeast(0.25f)
                     drawOval(
-                        color = ribbon.color.copy(alpha = 0.85f),
-                        topLeft = Offset(cx - ribbon.radiusX * kotlin.math.abs(scaleX), cy - ribbon.radiusY),
-                        size = androidx.compose.ui.geometry.Size(ribbon.radiusX * 2f * kotlin.math.abs(scaleX).coerceAtLeast(0.2f), ribbon.radiusY * 2f)
+                        color = ribbon.color.copy(alpha = 0.95f),
+                        topLeft = Offset(cx - rWidth, cy - ribbon.radiusY),
+                        size = androidx.compose.ui.geometry.Size(rWidth * 2f, ribbon.radiusY * 2f)
+                    )
+                    // Golden highlight gleam on edge
+                    drawOval(
+                        color = Color.White.copy(alpha = 0.6f),
+                        topLeft = Offset(cx - rWidth * 0.7f, cy - ribbon.radiusY * 0.7f),
+                        size = androidx.compose.ui.geometry.Size(rWidth * 1.4f, ribbon.radiusY * 1.4f),
+                        style = Stroke(width = 1.5f)
                     )
                 }
             }
@@ -312,3 +321,4 @@ fun FestivalVisualEffectsOverlay(
         else -> {}
     }
 }
+

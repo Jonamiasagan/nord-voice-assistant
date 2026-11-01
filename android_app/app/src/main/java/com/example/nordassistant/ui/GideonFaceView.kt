@@ -212,21 +212,21 @@ fun GideonFaceView(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = securityStatus,
+                        text = "${activeFestival.festivalName.uppercase()} EDITION // ${securityStatus}",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.5.sp,
-                        color = if (securityStatus.contains("GUEST")) Color(0xFFFFD600) else Color(0xFF00E5FF).copy(alpha = 0.9f)
+                        color = activeFestival.primaryRingColor.copy(alpha = 0.95f)
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = when (state) {
+                    text = if (state == AssistantState.IDLE) activeFestival.greeting else when (state) {
                         AssistantState.LISTENING -> "STATUS: LISTENING TO YOU..."
                         AssistantState.THINKING -> "STATUS: DEVIL ANALYZING..."
                         AssistantState.SPEAKING -> "STATUS: DEVIL RESPONDING..."
-                        AssistantState.IDLE -> "STATUS: STANDBY // DEVIL READY"
+                        else -> "STATUS: STANDBY"
                     },
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
@@ -360,16 +360,16 @@ fun GideonFaceView(
                             .scale(hologramPulse)
                     )
 
-                    // Holographic Sci-Fi Overlay Tint (blends festival palette with hologram aesthetic)
+                    // Subtle Holographic Overlay Tint (transparent to preserve vibrant turban & clothes)
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
                                     colors = listOf(
-                                        activeFestival.primaryRingColor.copy(alpha = 0.20f),
-                                        Color(0x1000B0FF),
-                                        activeFestival.secondaryRingColor.copy(alpha = 0.25f)
+                                        activeFestival.primaryRingColor.copy(alpha = 0.08f),
+                                        Color.Transparent,
+                                        activeFestival.secondaryRingColor.copy(alpha = 0.10f)
                                     )
                                 )
                             )
