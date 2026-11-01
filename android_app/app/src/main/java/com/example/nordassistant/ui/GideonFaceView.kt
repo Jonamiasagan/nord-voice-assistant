@@ -272,44 +272,79 @@ fun GideonFaceView(
                         )
                     )
 
-                    // Outer Cyberspace HUD Ring 1 (Dashed / Segmented)
-                    drawCircle(
-                        color = activeFestival.primaryRingColor.copy(alpha = 0.4f),
-                        radius = radius + 12.dp.toPx(),
-                        style = Stroke(
-                            width = 1.8f,
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 14f), ringRotation1 * 2f)
+                    // ── KANNADA BI-COLOR FLAG RING (Top Half Yellow / Bottom Half Red) ──
+                    if (activeFestival.festivalName.contains("Kannada", ignoreCase = true)) {
+                        // Top Arc: Turmeric Yellow (180° to 360°)
+                        drawArc(
+                            color = Color(0xFFFFD700),
+                            startAngle = 180f,
+                            sweepAngle = 180f,
+                            useCenter = false,
+                            topLeft = Offset(center.x - radius - 8.dp.toPx(), center.y - radius - 8.dp.toPx()),
+                            size = androidx.compose.ui.geometry.Size((radius + 8.dp.toPx()) * 2f, (radius + 8.dp.toPx()) * 2f),
+                            style = Stroke(width = 4.5f)
                         )
-                    )
-
-                    // Inner Cyberspace HUD Ring 2 (Counter-rotating)
-                    drawCircle(
-                        color = activeFestival.secondaryRingColor.copy(alpha = 0.6f),
-                        radius = radius + 4.dp.toPx(),
-                        style = Stroke(
-                            width = 2.2f,
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(30f, 25f, 10f, 25f), ringRotation2 * 2f)
+                        // Bottom Arc: Kumkuma Red (0° to 180°)
+                        drawArc(
+                            color = Color(0xFFD32F2F),
+                            startAngle = 0f,
+                            sweepAngle = 180f,
+                            useCenter = false,
+                            topLeft = Offset(center.x - radius - 8.dp.toPx(), center.y - radius - 8.dp.toPx()),
+                            size = androidx.compose.ui.geometry.Size((radius + 8.dp.toPx()) * 2f, (radius + 8.dp.toPx()) * 2f),
+                            style = Stroke(width = 4.5f)
                         )
-                    )
+                        // Subtle golden split divider nodes at 0° and 180°
+                        drawCircle(
+                            color = Color(0xFFFFF9C4),
+                            radius = 4f,
+                            center = Offset(center.x + radius + 8.dp.toPx(), center.y)
+                        )
+                        drawCircle(
+                            color = Color(0xFFFFF9C4),
+                            radius = 4f,
+                            center = Offset(center.x - (radius + 8.dp.toPx()), center.y)
+                        )
+                    } else {
+                        // Standard Cyberspace HUD Ring 1 (Dashed / Segmented)
+                        drawCircle(
+                            color = activeFestival.primaryRingColor.copy(alpha = 0.4f),
+                            radius = radius + 12.dp.toPx(),
+                            style = Stroke(
+                                width = 1.8f,
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 14f), ringRotation1 * 2f)
+                            )
+                        )
 
-                    // Orbiting Data Nodes
-                    val nodeAngleRad = Math.toRadians(ringRotation1.toDouble())
-                    val nodeX = center.x + (radius + 8.dp.toPx()) * cos(nodeAngleRad).toFloat()
-                    val nodeY = center.y + (radius + 8.dp.toPx()) * sin(nodeAngleRad).toFloat()
-                    drawCircle(
-                        color = activeFestival.accentColor,
-                        radius = 4.5f,
-                        center = Offset(nodeX, nodeY)
-                    )
+                        // Inner Cyberspace HUD Ring 2 (Counter-rotating)
+                        drawCircle(
+                            color = activeFestival.secondaryRingColor.copy(alpha = 0.6f),
+                            radius = radius + 4.dp.toPx(),
+                            style = Stroke(
+                                width = 2.2f,
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(30f, 25f, 10f, 25f), ringRotation2 * 2f)
+                            )
+                        )
 
-                    val node2AngleRad = Math.toRadians((ringRotation1 + 180.0))
-                    val node2X = center.x + (radius + 8.dp.toPx()) * cos(node2AngleRad).toFloat()
-                    val node2Y = center.y + (radius + 8.dp.toPx()) * sin(node2AngleRad).toFloat()
-                    drawCircle(
-                        color = activeFestival.secondaryRingColor,
-                        radius = 3.5f,
-                        center = Offset(node2X, node2Y)
-                    )
+                        // Orbiting Data Nodes
+                        val nodeAngleRad = Math.toRadians(ringRotation1.toDouble())
+                        val nodeX = center.x + (radius + 8.dp.toPx()) * cos(nodeAngleRad).toFloat()
+                        val nodeY = center.y + (radius + 8.dp.toPx()) * sin(nodeAngleRad).toFloat()
+                        drawCircle(
+                            color = activeFestival.accentColor,
+                            radius = 4.5f,
+                            center = Offset(nodeX, nodeY)
+                        )
+
+                        val node2AngleRad = Math.toRadians((ringRotation1 + 180.0))
+                        val node2X = center.x + (radius + 8.dp.toPx()) * cos(node2AngleRad).toFloat()
+                        val node2Y = center.y + (radius + 8.dp.toPx()) * sin(node2AngleRad).toFloat()
+                        drawCircle(
+                            color = activeFestival.secondaryRingColor,
+                            radius = 3.5f,
+                            center = Offset(node2X, node2Y)
+                        )
+                    }
 
                     // If THINKING, draw dynamic expanding neural frequency wave
                     if (state == AssistantState.THINKING) {
@@ -339,15 +374,26 @@ fun GideonFaceView(
                         .size(240.dp)
                         .clip(CircleShape)
                         .border(
-                            width = 2.5.dp,
-                            brush = Brush.sweepGradient(
-                                listOf(
-                                    activeFestival.primaryRingColor,
-                                    activeFestival.secondaryRingColor,
-                                    activeFestival.primaryRingColor.copy(alpha = 0.7f),
-                                    activeFestival.primaryRingColor
+                            width = 3.dp,
+                            brush = if (activeFestival.festivalName.contains("Kannada", ignoreCase = true)) {
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color(0xFFFFD700), // Pure Yellow Top
+                                        Color(0xFFFFD700),
+                                        Color(0xFFD32F2F), // Pure Red Bottom
+                                        Color(0xFFD32F2F)
+                                    )
                                 )
-                            ),
+                            } else {
+                                Brush.sweepGradient(
+                                    listOf(
+                                        activeFestival.primaryRingColor,
+                                        activeFestival.secondaryRingColor,
+                                        activeFestival.primaryRingColor.copy(alpha = 0.7f),
+                                        activeFestival.primaryRingColor
+                                    )
+                                )
+                            },
                             shape = CircleShape
                         )
                 ) {
