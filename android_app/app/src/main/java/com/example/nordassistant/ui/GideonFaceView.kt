@@ -137,6 +137,28 @@ fun GideonFaceView(
         label = "glow_alpha"
     )
 
+    // Animated sacred blessing energy stream (Sister -> Brother for Bhai Dooj)
+    val blessingProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "blessing_progress"
+    )
+
+    // Shimmering Raksha Kavach (Protective Energy Shield) pulse
+    val shieldPulse by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.90f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "shield_pulse"
+    )
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -430,62 +452,185 @@ fun GideonFaceView(
                         )
                 ) {
                     if (activeFestival.festivalName == "Bhai Dooj") {
-                        // ── TWO GIDEONS INSIDE A SINGLE CIRCLE (Brother & Sister side-by-side) ──
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 4.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // 1. Brother Gideon (Left, with tilak)
-                            Box(
+                        // ── TWO GIDEONS INSIDE A SINGLE CIRCLE: SISTER BLESSING & SHIELDING BROTHER ──
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            Row(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight(0.88f)
-                                    .clip(CircleShape)
-                                    .border(1.5.dp, Color(0xFFE74C3C).copy(alpha = 0.7f), CircleShape)
+                                    .fillMaxSize()
+                                    .padding(horizontal = 4.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Image(
-                                    painter = painterResource(id = activeFestival.drawableResId),
-                                    contentDescription = "Brother Gideon",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .scale(hologramPulse)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            // 2. Sister Gideon (Right, with blessing pink aura, facing brother)
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight(0.88f)
-                                    .clip(CircleShape)
-                                    .border(1.5.dp, Color(0xFFFF4081).copy(alpha = 0.85f), CircleShape)
-                            ) {
-                                Image(
-                                    painter = painterResource(id = activeFestival.drawableResId),
-                                    contentDescription = "Sister Gideon",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .scale(scaleX = -hologramPulse, scaleY = hologramPulse)
-                                )
-                                // Soft protective rose-pink blessing veil & bindi glow
+                                // 1. BROTHER GIDEON (Left, protected by Raksha Shield & Tilak)
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.verticalGradient(
+                                        .weight(1f)
+                                        .fillMaxHeight(0.88f)
+                                        .clip(CircleShape)
+                                        .border(
+                                            width = 2.dp,
+                                            brush = Brush.sweepGradient(
                                                 listOf(
-                                                    Color(0xFFFF4081).copy(alpha = 0.22f),
-                                                    Color(0xFFBA68C8).copy(alpha = 0.14f)
+                                                    Color(0xFFFFD54F).copy(alpha = shieldPulse),
+                                                    Color(0xFF00E5FF).copy(alpha = 0.85f),
+                                                    Color(0xFFFFD54F).copy(alpha = shieldPulse)
+                                                )
+                                            ),
+                                            shape = CircleShape
+                                        )
+                                ) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.gideon_bhai_dooj),
+                                        contentDescription = "Brother Gideon",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .scale(hologramPulse)
+                                    )
+
+                                    // Raksha Kavach (Golden-Cyan Protective Forcefield over Brother)
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        // Shimmering protective energy dome
+                                        drawCircle(
+                                            brush = Brush.radialGradient(
+                                                colors = listOf(
+                                                    Color(0xFFFFD54F).copy(alpha = shieldPulse * 0.25f),
+                                                    Color(0xFF00E5FF).copy(alpha = shieldPulse * 0.18f),
+                                                    Color.Transparent
                                                 )
                                             )
                                         )
+                                        // Concentric cyber shield ripples
+                                        drawCircle(
+                                            color = Color(0xFFFFD54F).copy(alpha = shieldPulse * 0.45f),
+                                            radius = size.minDimension / 2f * 0.92f,
+                                            style = Stroke(width = 1.8.dp.toPx())
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(6.dp))
+
+                                // 2. SISTER GIDEON (Right, female Gideon bestowing blessing)
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight(0.88f)
+                                        .clip(CircleShape)
+                                        .border(
+                                            width = 2.dp,
+                                            brush = Brush.sweepGradient(
+                                                listOf(
+                                                    Color(0xFFFF4081),
+                                                    Color(0xFFFF80AB),
+                                                    Color(0xFFFFD54F),
+                                                    Color(0xFFFF4081)
+                                                )
+                                            ),
+                                            shape = CircleShape
+                                        )
+                                ) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.gideon_sister),
+                                        contentDescription = "Sister Gideon",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .scale(scaleX = -hologramPulse, scaleY = hologramPulse)
+                                    )
+
+                                    // Sister Divine Rose-Gold Blessing Aura
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    listOf(
+                                                        Color(0xFFFF4081).copy(alpha = 0.18f),
+                                                        Color.Transparent,
+                                                        Color(0xFFFFD54F).copy(alpha = 0.14f)
+                                                    )
+                                                )
+                                            )
+                                    )
+                                }
+                            }
+
+                            // 3. ANIMATED BLESSING LIGHT STREAM (Sister -> Brother Tilak)
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val w = size.width
+                                val h = size.height
+
+                                // Start from Sister's blessing side (x ~ 0.68w, y ~ 0.58h)
+                                // Arching across to Brother's forehead tilak (x ~ 0.28w, y ~ 0.38h)
+                                val startX = w * 0.68f
+                                val startY = h * 0.58f
+                                val endX = w * 0.28f
+                                val endY = h * 0.38f
+                                val controlX = w * 0.48f
+                                val controlY = h * 0.22f
+
+                                fun getBezierPoint(t: Float): Offset {
+                                    val oneMinusT = 1f - t
+                                    val x = oneMinusT * oneMinusT * startX + 2f * oneMinusT * t * controlX + t * t * endX
+                                    val y = oneMinusT * oneMinusT * startY + 2f * oneMinusT * t * controlY + t * t * endY
+                                    return Offset(x, y)
+                                }
+
+                                val path = Path().apply {
+                                    moveTo(startX, startY)
+                                    quadraticTo(controlX, controlY, endX, endY)
+                                }
+
+                                // Glowing baseline curve
+                                drawPath(
+                                    path = path,
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(
+                                            Color(0xFFFF4081).copy(alpha = 0.75f),
+                                            Color(0xFFFFD54F).copy(alpha = 0.95f),
+                                            Color(0xFF00E5FF).copy(alpha = 0.85f)
+                                        ),
+                                        start = Offset(startX, startY),
+                                        end = Offset(endX, endY)
+                                    ),
+                                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                                )
+
+                                // Flowing light photon nodes
+                                val numParticles = 6
+                                for (i in 0 until numParticles) {
+                                    val particleT = (blessingProgress + (i.toFloat() / numParticles)) % 1f
+                                    val pt = getBezierPoint(particleT)
+                                    val alpha = (kotlin.math.sin(particleT * Math.PI.toFloat()) * 0.95f).coerceIn(0f, 1f)
+                                    val particleRadius = 3.2.dp.toPx()
+
+                                    drawCircle(
+                                        color = Color(0xFFFFEB3B).copy(alpha = alpha),
+                                        radius = particleRadius,
+                                        center = pt
+                                    )
+                                    drawCircle(
+                                        color = Color(0xFFFF80AB).copy(alpha = alpha * 0.55f),
+                                        radius = particleRadius * 2.2f,
+                                        center = pt
+                                    )
+                                }
+
+                                // Flare at Brother's Tilak impact point
+                                val flareRadius = 8.dp.toPx() + (4.dp.toPx() * shieldPulse)
+                                drawCircle(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            Color(0xFFFFD700).copy(alpha = 0.95f),
+                                            Color(0xFFFF4081).copy(alpha = 0.50f),
+                                            Color.Transparent
+                                        ),
+                                        center = Offset(endX, endY),
+                                        radius = flareRadius
+                                    ),
+                                    radius = flareRadius,
+                                    center = Offset(endX, endY)
                                 )
                             }
                         }
@@ -544,6 +689,37 @@ fun GideonFaceView(
                             currY += rasterStep
                         }
                     }
+                }
+            }
+
+            // In Bhai Dooj: Dedicated Sister Assurance Holographic Pill
+            if (activeFestival.festivalName == "Bhai Dooj") {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 8.dp, bottom = 4.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF220810).copy(alpha = 0.92f))
+                        .border(
+                            width = 1.2.dp,
+                            brush = Brush.horizontalGradient(
+                                listOf(
+                                    Color(0xFFFF4081),
+                                    Color(0xFFFFD54F),
+                                    Color(0xFFFF4081)
+                                )
+                            ),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "🛡️ SISTER GIDEON: \"I WILL PROTECT YOU, BROTHER\"",
+                        fontFamily = FontFamily.SansSerif,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFFFFE082),
+                        letterSpacing = 0.6.sp
+                    )
                 }
             }
 

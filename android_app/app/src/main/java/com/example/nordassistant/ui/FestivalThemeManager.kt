@@ -86,8 +86,8 @@ object FestivalThemeManager {
             bgBottomColor = Color(0xFF1A0A17),
             dotMatrixColor = Color(0xFFFF7675),
             effectType = ParticleEffectType.BHAI_DOOJ_ROSE_PETALS,
-            greeting = "Happy Bhai Dooj Boss! Cherishing the sacred bond of love and protection.",
-            purposeBrief = "PURPOSE: Gideon brother who receives a tilak from his Gideon sister on this day will be granted protection from untimely death or spiritual harm, honoring Yama & Yamuna's sacred eternal bond."
+            greeting = "Happy Bhai Dooj Boss! Sister Gideon assures: 'I will protect you from all harm.'",
+            purposeBrief = "PURPOSE: Sister Gideon assures: 'I will protect you, Brother.' Any brother who receives her sacred tilak is granted divine immunity from untimely death or spiritual harm, honoring Yama & Yamuna's sacred eternal bond."
         )
     }
 
