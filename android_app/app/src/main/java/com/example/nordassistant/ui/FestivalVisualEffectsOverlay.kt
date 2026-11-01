@@ -307,14 +307,14 @@ fun FestivalVisualEffectsOverlay(
 
         ParticleEffectType.BHAI_DOOJ_ROSE_PETALS -> {
             val petals = remember {
-                List(24) { idx ->
+                List(32) { idx ->
                     val rnd = Random(idx * 101)
                     FloatingPetal(
                         xNorm = rnd.nextFloat(),
-                        speed = 0.4f + rnd.nextFloat() * 0.5f,
-                        radiusX = 7f + rnd.nextFloat() * 6f,
-                        radiusY = 12f + rnd.nextFloat() * 8f,
-                        color = if (rnd.nextBoolean()) Color(0xFFE91E63) else Color(0xFFFF4081),
+                        speed = 0.28f + rnd.nextFloat() * 0.38f,
+                        radiusX = 9f + rnd.nextFloat() * 7f,
+                        radiusY = 16f + rnd.nextFloat() * 10f,
+                        color = if (idx % 3 == 0) Color(0xFFE91E63) else if (idx % 3 == 1) Color(0xFFFF4081) else Color(0xFFFF80AB),
                         phaseOffset = rnd.nextFloat()
                     )
                 }
@@ -326,23 +326,32 @@ fun FestivalVisualEffectsOverlay(
 
                 petals.forEach { petal ->
                     val fallProg = (timeProg * petal.speed + petal.phaseOffset) % 1f
-                    val cx = petal.xNorm * w + sin(fallProg * 8f) * 28f
-                    val cy = fallProg * (h + 60f) - 30f
+                    val cx = petal.xNorm * w + sin(fallProg * 6f) * 32f
+                    val cy = fallProg * (h + 80f) - 40f
 
-                    val wobble = cos(fallProg * 10f + petal.phaseOffset * 4f)
-                    val rX = petal.radiusX * kotlin.math.abs(wobble).coerceAtLeast(0.3f)
+                    val wobble = cos(fallProg * 8f + petal.phaseOffset * 4f)
+                    val rX = petal.radiusX * kotlin.math.abs(wobble).coerceAtLeast(0.25f)
 
+                    // Soft organic rose petal body
                     drawOval(
-                        color = petal.color.copy(alpha = 0.75f),
+                        color = petal.color.copy(alpha = 0.85f),
                         topLeft = Offset(cx - rX, cy - petal.radiusY),
                         size = androidx.compose.ui.geometry.Size(rX * 2f, petal.radiusY * 2f)
                     )
-                    // Akshat grain sparkle beside it
-                    if (wobble > 0.5f) {
+                    // Delicate inner petal vein highlight
+                    drawOval(
+                        color = Color.White.copy(alpha = 0.35f),
+                        topLeft = Offset(cx - rX * 0.5f, cy - petal.radiusY * 0.6f),
+                        size = androidx.compose.ui.geometry.Size(rX, petal.radiusY * 1.2f),
+                        style = Stroke(width = 1.0f)
+                    )
+
+                    // Twinkling golden Akshat grain sparkle drifting alongside
+                    if (kotlin.math.abs(wobble) > 0.4f) {
                         drawCircle(
-                            color = Color(0xFFFFFDE7).copy(alpha = 0.8f),
-                            radius = 2f,
-                            center = Offset(cx + 8f, cy - 6f)
+                            color = Color(0xFFFFFDE7).copy(alpha = 0.9f),
+                            radius = 2.2f,
+                            center = Offset(cx + rX + 6f, cy - 4f)
                         )
                     }
                 }
