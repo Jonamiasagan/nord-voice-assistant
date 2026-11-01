@@ -61,23 +61,23 @@ fun GideonFaceView(
     val activeFestival = remember { FestivalThemeManager.getActiveFestivalTheme() }
     val infiniteTransition = rememberInfiniteTransition(label = "gideon_animations")
 
-    // Slow ambient hologram rotation
+    // Calm, slow ambient hologram rotation
     val ringRotation1 by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 14000, easing = LinearEasing),
+            animation = tween(durationMillis = 32000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "ring_rotation_1"
     )
 
-    // Reverse faster ring rotation
+    // Gentle reverse slow ring rotation
     val ringRotation2 by infiniteTransition.animateFloat(
         initialValue = 360f,
         targetValue = 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 8000, easing = LinearEasing),
+            animation = tween(durationMillis = 24000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "ring_rotation_2"

@@ -68,7 +68,7 @@ fun FestivalVisualEffectsOverlay(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 6000, easing = LinearEasing),
+            animation = tween(durationMillis = 16000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "particle_time"
@@ -275,13 +275,13 @@ fun FestivalVisualEffectsOverlay(
 
         ParticleEffectType.RAJYOTSAVA_CONFETTI -> {
             val ribbons = remember {
-                List(40) { idx ->
+                List(32) { idx ->
                     val rnd = Random(idx * 67)
                     FloatingPetal(
                         xNorm = rnd.nextFloat(),
-                        speed = 0.6f + rnd.nextFloat() * 0.8f,
-                        radiusX = 8f + rnd.nextFloat() * 6f,
-                        radiusY = 22f + rnd.nextFloat() * 14f,
+                        speed = 0.25f + rnd.nextFloat() * 0.35f, // Calm, gentle drifting descent
+                        radiusX = 7f + rnd.nextFloat() * 5f,
+                        radiusY = 18f + rnd.nextFloat() * 10f,
                         color = if (idx % 2 == 0) Color(0xFFFFD700) else Color(0xFFD32F2F),
                         phaseOffset = rnd.nextFloat()
                     )
@@ -294,25 +294,26 @@ fun FestivalVisualEffectsOverlay(
 
                 ribbons.forEach { ribbon ->
                     val fallProg = (timeProg * ribbon.speed + ribbon.phaseOffset) % 1f
-                    val cx = ribbon.xNorm * w + sin(fallProg * 8f) * 35f
+                    val cx = ribbon.xNorm * w + sin(fallProg * 5f) * 22f
                     val cy = fallProg * (h + 80f) - 40f
 
-                    val rotationProg = (fallProg * 12f + ribbon.phaseOffset * 5f)
+                    // Very slow and graceful tumbling 3D rotation
+                    val rotationProg = (fallProg * 4.5f + ribbon.phaseOffset * 3f)
                     val scaleX = cos(rotationProg)
 
-                    // Draw distinct fluttering ribbon with border for contrast
-                    val rWidth = ribbon.radiusX * kotlin.math.abs(scaleX).coerceAtLeast(0.25f)
+                    // Draw distinct fluttering ribbon with subtle highlight
+                    val rWidth = ribbon.radiusX * kotlin.math.abs(scaleX).coerceAtLeast(0.20f)
                     drawOval(
-                        color = ribbon.color.copy(alpha = 0.95f),
+                        color = ribbon.color.copy(alpha = 0.88f),
                         topLeft = Offset(cx - rWidth, cy - ribbon.radiusY),
                         size = androidx.compose.ui.geometry.Size(rWidth * 2f, ribbon.radiusY * 2f)
                     )
-                    // Golden highlight gleam on edge
+                    // Soft edge gleam
                     drawOval(
-                        color = Color.White.copy(alpha = 0.6f),
+                        color = Color.White.copy(alpha = 0.35f),
                         topLeft = Offset(cx - rWidth * 0.7f, cy - ribbon.radiusY * 0.7f),
                         size = androidx.compose.ui.geometry.Size(rWidth * 1.4f, ribbon.radiusY * 1.4f),
-                        style = Stroke(width = 1.5f)
+                        style = Stroke(width = 1.2f)
                     )
                 }
             }
