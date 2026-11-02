@@ -23,6 +23,7 @@ import com.example.nordassistant.MainActivity
 import com.example.nordassistant.R
 import com.example.nordassistant.data.DarwinboxAlarmReceiver
 import com.example.nordassistant.data.DarwinboxShiftTracker
+import com.example.nordassistant.audio.BluetoothAudioHelper
 import com.example.nordassistant.protocol.DevilProtocolManager
 import java.util.Locale
 
@@ -287,6 +288,7 @@ class DevilSentryService : Service() {
                 }
 
                 isListening = true
+                BluetoothAudioHelper.routeToBluetoothHeadsetIfAvailable()  // 🎧 Earbud mic for Sentry
                 speechRecognizer?.startListening(intent)
                 Log.d(TAG, "Sentry speech recognizer started listening (noise-suppression active)")
             } catch (e: Exception) {

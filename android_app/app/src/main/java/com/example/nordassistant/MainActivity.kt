@@ -24,6 +24,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
+import com.example.nordassistant.audio.BluetoothAudioHelper
 import android.util.Log
 import android.view.KeyEvent
 import androidx.core.content.FileProvider
@@ -147,24 +148,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private var voiceNoteSynthesisCallback: (() -> Unit)? = null
     
-    private val requiredPermissions = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-        arrayOf(
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_CONTACTS,
-            Manifest.permission.READ_SMS,
-            Manifest.permission.READ_MEDIA_AUDIO,
-            Manifest.permission.POST_NOTIFICATIONS
-        )
-    } else {
-        arrayOf(
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_CONTACTS,
-            Manifest.permission.READ_SMS,
-            Manifest.permission.READ_EXTERNAL_STORAGE
-        )
-    }
+    private val requiredPermissions = buildList {
+        add(Manifest.permission.RECORD_AUDIO)
+        add(Manifest.permission.CALL_PHONE)
+        add(Manifest.permission.READ_CONTACTS)
+        add(Manifest.permission.READ_SMS)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            add(Manifest.permission.READ_MEDIA_AUDIO)
+            add(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        // Android 12+ requires BLUETOOTH_CONNECT to enumerate & route BT audio devices
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+    }.toTypedArray()
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
         if (permissions.all { it.value }) {
@@ -181,6 +180,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         super.onCreate(savedInstanceState)
         clearAppCache()
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        BluetoothAudioHelper.initialize(this)   // 🎧 Route earbud mic on BT connect/disconnect
         tts = TextToSpeech(this, this)
         bossSecurity = BossSecurityManager.getInstance(this)
         memoryVault = BossMemoryVault.getInstance(this)
@@ -780,6 +780,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
         }
         try {
+            BluetoothAudioHelper.routeToBluetoothHeadsetIfAvailable()  // 🎧 Activate earbud mic
             speechRecognizer.startListening(intent)
             isListening = true
             assistantState = AssistantState.LISTENING
@@ -3274,6 +3275,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         clearAppCache()
         if (::speechRecognizer.isInitialized) speechRecognizer.destroy()
         if (::tts.isInitialized) tts.shutdown()
+        BluetoothAudioHelper.resetToNormal()   // 🎧 Release SCO / BLE headset routing
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 audioManager.clearCommunicationDevice()
