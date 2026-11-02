@@ -278,12 +278,17 @@ class DevilSentryService : Service() {
                         putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                     }
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    // Hardware multi-mic beamforming & noise/echo suppression
-                    putExtra("android.speech.extra.AUDIO_SOURCE", MediaRecorder.AudioSource.VOICE_RECOGNITION)
-                    // Fast responsive endpointing so traffic noise doesn't hold the mic hostage
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 900L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 750L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300L)
+                    // Use VOICE_COMMUNICATION for BT earbuds (low-voice optimized via SCO)
+                    val audioSource = if (BluetoothAudioHelper.isBluetoothHeadsetConnected()) {
+                        MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                    } else {
+                        MediaRecorder.AudioSource.VOICE_RECOGNITION
+                    }
+                    putExtra("android.speech.extra.AUDIO_SOURCE", audioSource)
+                    // Long silence thresholds so full sentences are captured, not just first words
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 500L)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                 }
 

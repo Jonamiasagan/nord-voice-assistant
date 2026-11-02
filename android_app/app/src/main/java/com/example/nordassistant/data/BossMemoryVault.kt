@@ -538,4 +538,48 @@ class BossMemoryVault private constructor(context: Context) :
         val yesterday = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(System.currentTimeMillis() - 86_400_000L))
         return getFormattedDaySummary(yesterday, "yesterday")
     }
+
+    /**
+     * Finds if this topic or question was already discussed or stored in memory.
+     * Returns an immediate answer from memory to avoid redundant LLM processing.
+     */
+    fun findExistingAnswerForTopic(query: String): String? {
+        val clean = query.trim().lowercase()
+        if (clean.length < 3) return null
+
+        // 1. Check if user is asking about prior conversation or what they asked
+        if (clean.contains("where we left off") || clean.contains("where did we end") || clean.contains("what did i ask") || clean.contains("what questions did i ask")) {
+            val lastTurn = getLastConversationTurn()
+            if (lastTurn != null) {
+                return "Earlier at ${lastTurn.timeStr}, you asked '${lastTurn.userQuery}', and I said: ${lastTurn.assistantReply}"
+            }
+        }
+
+        // 2. Direct memory recall for saved facts/topics
+        val mem = recall(clean)
+        if (mem != null) {
+            return "According to what we stored earlier, Boss: ${mem.key} is ${mem.fact}."
+        }
+
+        // 3. Check recent conversation journal for matching user questions
+        loadRamCacheIfNeeded()
+        synchronized(ramJournalCache) {
+            val stopWords = setOf("what", "is", "the", "a", "an", "tell", "me", "about", "how", "do", "you", "know", "can", "again")
+            val queryKeywords = clean.split(" ", "?", ".").filter { it.length > 2 && it !in stopWords }
+
+            if (queryKeywords.isNotEmpty()) {
+                val match = ramJournalCache.reversed().firstOrNull { entry ->
+                    val entryKeywords = entry.userQuery.lowercase().split(" ", "?", ".").toSet()
+                    val matchCount = queryKeywords.count { it in entryKeywords }
+                    matchCount >= 2 || (queryKeywords.size == 1 && queryKeywords.first() in entryKeywords)
+                }
+
+                if (match != null) {
+                    return "We already covered this earlier, Boss! When you asked '${match.userQuery}', I noted: ${match.assistantReply}"
+                }
+            }
+        }
+
+        return null
+    }
 }

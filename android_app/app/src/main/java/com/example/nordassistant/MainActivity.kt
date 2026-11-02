@@ -133,15 +133,26 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         "There are only 10 types of people in the world, Boss: those who understand binary, and those who don't.",
         "Why was the cell phone wearing glasses, Boss? Because it lost all its contacts!",
         "I asked my phone why it was being slow. It told me it was just taking a byte to think.",
-        "Why did the computer catch a cold, Boss? Because it left its Windows open!"
+        "Why did the computer catch a cold, Boss? Because it left its Windows open!",
+        "Why do Java developers wear glasses, Boss? Because they don't C#!",
+        "How many programmers does it take to change a light bulb, Boss? None, that's a hardware problem!",
+        "Why did the developer go broke, Boss? Because he used up all his cache!",
+        "What is an astronaut's favorite key on the keyboard, Boss? The spacebar!",
+        "Why was the JavaScript developer sad, Boss? Because he didn't Node how to Express himself!",
+        "Why did the database administrator walk out of the restaurant, Boss? The waiter couldn't join any tables!"
     )
     private var jokeIndex = 0
 
     private fun getNextJoke(): String {
-        val joke = jokes[jokeIndex % jokes.size]
-        jokeIndex++
-        LlamaHelper.recordJoke(joke)
-        return joke
+        val toldJokes = LlamaHelper.getRecentJokes().toSet()
+        val available = jokes.filter { joke -> toldJokes.none { it.contains(joke.take(20), ignoreCase = true) } }
+        val candidate = if (available.isNotEmpty()) {
+            available.random()
+        } else {
+            jokes[(jokeIndex++) % jokes.size]
+        }
+        LlamaHelper.recordJoke(candidate)
+        return candidate
     }
 
     data class ContactInfo(val displayName: String, val number: String)
@@ -593,11 +604,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 isListening = true
                 assistantState = AssistantState.LISTENING
                 speechAudioBuffer.reset()
-                try {
-                    voiceRecorder.startRecording()
-                } catch (e: Exception) {
-                    Log.w("MainActivity", "Parallel voiceRecorder start failed", e)
-                }
             }
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {
@@ -613,9 +619,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             override fun onError(error: Int) {
                 isListening = false
-                try {
-                    voiceRecorder.stopRecording()
-                } catch (_: Exception) {}
                 val now = System.currentTimeMillis()
                 val sessionActive = inConversationSession && (now < conversationSessionEndTime)
 
@@ -664,13 +667,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             override fun onResults(results: Bundle?) {
                 isListening = false
-                val recordedBytes = try {
-                    voiceRecorder.stopRecording()
-                } catch (_: Exception) {
-                    ByteArray(0)
-                }
                 val bufferBytes = synchronized(speechAudioBuffer) { speechAudioBuffer.toByteArray() }
-                val pcmAudio = if (recordedBytes.isNotEmpty()) recordedBytes else bufferBytes
+                val pcmAudio = bufferBytes
 
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (!matches.isNullOrEmpty()) {
@@ -766,18 +764,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, preferredLocale.toLanguageTag())
             putExtra("android.speech.extra.GET_AUDIO", true)
-            if (offlineSpeechSupported) {
-                // Prefer offline recognition if local pack is installed
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            }
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            // Hardware multi-mic beamforming & noise/echo suppression
-            putExtra("android.speech.extra.AUDIO_SOURCE", MediaRecorder.AudioSource.VOICE_RECOGNITION)
-            // Fast responsive speech endpointing (750ms complete silence, 600ms possible silence)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 750L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 600L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 250L)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3500L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300L)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
         }
         try {
             BluetoothAudioHelper.routeToBluetoothHeadsetIfAvailable()  // 🎧 Activate earbud mic
@@ -803,9 +794,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
     
     private fun stopSco() {
-        if (audioManager.isBluetoothScoOn) {
-            audioManager.isBluetoothScoOn = false
-            audioManager.stopBluetoothSco()
+        if (!inConversationSession) {
+            BluetoothAudioHelper.resetToNormal()
         }
     }
 
@@ -1470,7 +1460,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val (key, fact) = if (parts.size == 2) {
                 parts[0].replace(Regex("(?i)^(?:my|the|that)\\s+"), "").trim() to parts[1].trim()
             } else {
-                fullStatement to fullStatement
+                // If no "is", extract meaningful topic key (e.g. "office start time" for "I will start to my office at 9 o'clock")
+                val topicKey = if (fullStatement.contains("office", ignoreCase = true)) {
+                    "office start time"
+                } else {
+                    fullStatement.take(30).trim()
+                }
+                topicKey to fullStatement
             }
             memoryVault.remember(key, fact)
             inConversationSession = true
@@ -1479,7 +1475,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         // 2. List all memories
-        if (trimmed.contains(Regex("(?i)\\b((?:what(?:'s|\\s+is|\\s+do\\s+you|\\s+did\\s+you)\\s+(?:in\\s+|remember|stored)|show|list|view|open|check|read)\\s+(?:my\\s+|all\\s+)?(?:memory\\s+vault|memories|vault)|memory\\s+vault)\\b"))) {
+        if (trimmed.contains(Regex("(?i)\\b((?:what(?:'s|\\s+is|\\s+do\\s+you|\\s+did\\s+you)\\s+(?:in\\s+|remember|stored)|show|list|view|open|check|read)\\s+(?:my\\s+|all\\s+)?(?:memory\\s+vault|memory\\s+work|memory\\s+world|memories|vault)|memory\\s+vault|memory\\s+work|memory\\s+world)\\b"))) {
             inConversationSession = true
             val summary = memoryVault.listMemoriesSummary()
             speakResponse(summary, continueConversation = true)
@@ -1996,6 +1992,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             // Current Time query ("what is the time", "what time is it", "current time", "time now")
+            // Must NOT match contextual questions like "what is the time i need to go to office" or "what time to go"
+            !trimmed.contains(Regex("(?i)\\b(to\\s+go|go\\s+to|leave|office|start|travel|reach)\\b")) &&
             trimmed.contains(Regex("(?i)\\b(what\\s*(is|'s)?\\s*(the)?\\s*time|current\\s*time|time\\s*now|what\\s*time\\s*is\\s*it)\\b")) -> {
                 val ans = CorporateCalendarEngine.getCurrentTimeSpoken()
                 speakResponse(ans, continueConversation = true)
@@ -3218,6 +3216,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun queryBackend(query: String) {
+        // ⚡ Zero-latency Memory Check: If this topic exists in memory, reply directly without wasting LLM compute
+        val cachedMemoryAnswer = memoryVault.findExistingAnswerForTopic(query)
+        if (cachedMemoryAnswer != null) {
+            inConversationSession = true
+            speakResponse(cachedMemoryAnswer, continueConversation = true)
+            return
+        }
+
         isHandlingQueryBackend = true
         scope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) {

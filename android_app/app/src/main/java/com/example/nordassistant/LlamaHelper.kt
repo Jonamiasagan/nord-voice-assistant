@@ -194,16 +194,19 @@ object LlamaHelper {
                 "You are DEVIL in developer mode. Answer Boss directly and technically in 1 to 2 sentences."
             else ->
                 "You are DEVIL, an intelligent, loyal, witty, and fun AI companion for your Boss. Chat naturally, warmly, and helpfully in 1 to 2 concise spoken sentences without markdown or bullet points. You already know your Boss well; never introduce yourself during casual chat.\n" +
-                "CONVERSATION MEMORY RULES:\n" +
-                "1. You have a sharp, active memory of earlier jokes, remarks, and topics discussed in the conversation turns above.\n" +
-                "2. When Boss asks if you remember prior jokes, questions, or statements (e.g. 'do you remember', 'what did you say', 'you said some jokes earlier', 'where we ended'), ALWAYS directly cite or quote what was said earlier (e.g. 'Yes Boss, I told you the joke about [quote joke]!' or 'We were talking about X').\n" +
-                "3. NEVER reply with evasive brush-offs like 'I am always ready' or 'I can tell jokes' when Boss asks what was said earlier; state the actual conversation facts!"
+                "CONVERSATION MEMORY & SUGGESTION RULES:\n" +
+                "1. You have a sharp, active memory of earlier topics, questions, advice, and facts discussed in the conversation turns above.\n" +
+                "2. When Boss asks for suggestions, follow-ups, or opinions related to something discussed earlier, ALWAYS connect your answer to the prior context. Build upon what Boss already said or decided instead of starting from scratch.\n" +
+                "3. When Boss asks if you remember prior discussions, jokes, or statements (e.g. 'do you remember', 'what did you say', 'where we ended'), directly cite what was said earlier.\n" +
+                "4. NEVER reply with generic brush-offs like 'I am always ready' or 'how can I assist'; give substantive, personalized advice grounded in Boss's context!"
         }
         promptBuilder.append(personaPrompt)
 
         val jokesList = getRecentJokes()
         if (jokesList.isNotEmpty()) {
-            promptBuilder.append("\n[Jokes already shared in this session: ").append(jokesList.takeLast(3).joinToString(" | ")).append("]")
+            promptBuilder.append("\nCRITICAL - DO NOT REPEAT JOKES. The following jokes have already been told to Boss in this session:\n")
+            jokesList.forEach { promptBuilder.append("- ").append(it).append("\n") }
+            promptBuilder.append("If Boss asks for another joke, you MUST tell a completely fresh, brand new, and unique joke that is NOT in the list above.\n")
         }
 
         val savedMemories = memoryVault?.getMemoryContextForPrompt()
