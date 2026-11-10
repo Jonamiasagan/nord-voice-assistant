@@ -3,6 +3,8 @@ package com.example.nordassistant
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.accessibilityservice.GestureDescription
+import android.app.NotificationManager
+import android.content.Context
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Handler
@@ -36,6 +38,8 @@ class DevilAccessibilityService : AccessibilityService() {
         // Darwinbox auto-attendance state
         var pendingDarwinboxAction = DarwinboxAction.NONE
         var darwinboxTimestamp: Long = 0
+        var lastAuthWarningMs: Long = 0
+        var lastGeofenceWarningMs: Long = 0
 
         fun triggerAutoSend(contactName: String? = null) {
             isAutoSendPending = true
@@ -48,6 +52,14 @@ class DevilAccessibilityService : AccessibilityService() {
         fun triggerDarwinbox(action: DarwinboxAction = DarwinboxAction.CHECK_IN) {
             pendingDarwinboxAction = action
             darwinboxTimestamp = System.currentTimeMillis()
+            val actionStr = when (action) {
+                DarwinboxAction.CHECK_IN -> com.example.nordassistant.data.DarwinboxShiftTracker.PENDING_ACTION_CHECK_IN
+                DarwinboxAction.CHECK_OUT -> com.example.nordassistant.data.DarwinboxShiftTracker.PENDING_ACTION_CHECK_OUT
+                else -> com.example.nordassistant.data.DarwinboxShiftTracker.PENDING_ACTION_NONE
+            }
+            instance?.let {
+                com.example.nordassistant.data.DarwinboxShiftTracker.savePendingAction(it, actionStr)
+            }
             Log.i(TAG, "Darwinbox auto-attendance ARMED for action: $action")
             instance?.scheduleDarwinboxAttempts()
         }
@@ -111,6 +123,19 @@ class DevilAccessibilityService : AccessibilityService() {
 
         // 2. High-performance early exit: If no automations are armed and not Darwinbox, exit in 0ms!
         val isDarwinbox = pkg.contains("darwinbox", ignoreCase = true)
+
+        // Restore pending action from disk if in-memory state was reset
+        if (pendingDarwinboxAction == DarwinboxAction.NONE) {
+            val savedAction = com.example.nordassistant.data.DarwinboxShiftTracker.getPendingAction(this)
+            if (savedAction == com.example.nordassistant.data.DarwinboxShiftTracker.PENDING_ACTION_CHECK_IN) {
+                pendingDarwinboxAction = DarwinboxAction.CHECK_IN
+                darwinboxTimestamp = System.currentTimeMillis()
+            } else if (savedAction == com.example.nordassistant.data.DarwinboxShiftTracker.PENDING_ACTION_CHECK_OUT) {
+                pendingDarwinboxAction = DarwinboxAction.CHECK_OUT
+                darwinboxTimestamp = System.currentTimeMillis()
+            }
+        }
+
         if (!isAutoSendPending && pendingDarwinboxAction == DarwinboxAction.NONE && !isDarwinbox) {
             return
         }
@@ -173,16 +198,21 @@ class DevilAccessibilityService : AccessibilityService() {
 
     private fun observeManualDarwinboxAttendance(event: AccessibilityEvent?) {
         try {
-            if (com.example.nordassistant.data.DarwinboxShiftTracker.isCheckedInToday(this)) {
-                return
-            }
             if (event?.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
                 val text = event.text.joinToString(" ").lowercase()
                 val resName = event.source?.viewIdResourceName ?: ""
-                if (resName.contains("buttonSubmit") || resName.contains("bottomDone") ||
-                    text.contains("done") || text.contains("submit") || text.contains("check in")) {
+                val isCheckIn = resName.contains("buttonSubmit") || resName.contains("bottomDone") ||
+                        text.contains("check in") || text.contains("checkin")
+                val isCheckOut = text.contains("check out") || text.contains("checkout") || text.contains("clock out")
+                val isSubmit = text.contains("submit") || text.contains("done")
+
+                if (isCheckIn && !com.example.nordassistant.data.DarwinboxShiftTracker.isCheckedInToday(this)) {
                     Log.i(TAG, "🎯 Passive detection: User manually clicked check-in button in Darwinbox!")
                     com.example.nordassistant.data.DarwinboxShiftTracker.recordCheckIn(this)
+                } else if ((isCheckOut || isSubmit) && com.example.nordassistant.data.DarwinboxShiftTracker.isCheckedInToday(this) &&
+                           !com.example.nordassistant.data.DarwinboxShiftTracker.isCheckedOutToday(this)) {
+                    Log.i(TAG, "🎯 Passive detection: User manually clicked check-out button in Darwinbox!")
+                    com.example.nordassistant.data.DarwinboxShiftTracker.recordCheckOut(this)
                 }
             }
         } catch (e: Exception) {
@@ -220,6 +250,50 @@ class DevilAccessibilityService : AccessibilityService() {
         if (rootNodes.isEmpty()) return
 
         try {
+            // ── Step 0a: Detect Auth / Sign-in / Biometric prompts ──
+            val authKeywords = listOf("sign in", "842157@au", "authentication required", "verify identity", "touch the fingerprint sensor", "enter password")
+            for (rootNode in rootNodes) {
+                val authNodes = mutableListOf<AccessibilityNodeInfo>()
+                findNodesByTextOrDescription(rootNode, authKeywords, authNodes)
+                if (authNodes.isNotEmpty()) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastAuthWarningMs > 15_000L) {
+                        lastAuthWarningMs = now
+                        com.example.nordassistant.data.DevilVoiceSpeaker.speak(
+                            this,
+                            "Boss, Darwinbox needs you to sign in or scan your fingerprint so I can complete your attendance."
+                        )
+                    }
+                    return
+                }
+            }
+
+            // ── Step 0b: Detect Geofencing restriction dialog ──
+            val geofenceKeywords = listOf("geofencing restrictions", "not allowed from the selected location", "check in is not allowed")
+            for (rootNode in rootNodes) {
+                val geoNodes = mutableListOf<AccessibilityNodeInfo>()
+                findNodesByTextOrDescription(rootNode, geofenceKeywords, geoNodes)
+                if (geoNodes.isNotEmpty()) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastGeofenceWarningMs > 15_000L) {
+                        lastGeofenceWarningMs = now
+                        com.example.nordassistant.data.DevilVoiceSpeaker.speak(
+                            this,
+                            "Boss, check-in is not allowed from this location as per geofencing restrictions. Please check in when you reach the office."
+                        )
+                    }
+                    // Dismiss the dialog by tapping OK
+                    val okNodes = mutableListOf<AccessibilityNodeInfo>()
+                    findNodesByTextOrDescription(rootNode, listOf("ok", "okay"), okNodes)
+                    for (okNode in okNodes) {
+                        clickNodeOrCoordinates(okNode)
+                        break
+                    }
+                    pendingDarwinboxAction = DarwinboxAction.NONE
+                    return
+                }
+            }
+
             // ── Auto-grant any system location / permission dialogs blocking Darwinbox ──
             val permissionViewIds = listOf(
                 "com.android.permissioncontroller:id/permission_allow_foreground_only_button",
@@ -235,6 +309,30 @@ class DevilAccessibilityService : AccessibilityService() {
                             clickNodeOrCoordinates(pNode)
                         }
                     }
+                }
+            }
+
+            // Callback when Submit/Done click is successful
+            val onDoneSuccess: (String) -> Unit = { viewSource ->
+                Log.i(TAG, "DARWINBOX SUBMIT / DONE HIT SUCCESSFULLY via $viewSource!")
+                if (pendingDarwinboxAction == DarwinboxAction.CHECK_IN) {
+                    val info = com.example.nordassistant.data.DarwinboxShiftTracker.recordCheckIn(this)
+                    pendingDarwinboxAction = DarwinboxAction.NONE
+                    com.example.nordassistant.data.DarwinboxShiftTracker.clearPendingAction(this)
+                    com.example.nordassistant.data.DevilVoiceSpeaker.speak(
+                        this,
+                        "Shift check-in confirmed and logged at ${info.checkInTimeStr}, Boss! Your 9-hour shift completes at ${info.checkoutTimeStr}."
+                    )
+                } else if (pendingDarwinboxAction == DarwinboxAction.CHECK_OUT) {
+                    val checkoutStr = com.example.nordassistant.data.DarwinboxShiftTracker.recordCheckOut(this)
+                    pendingDarwinboxAction = DarwinboxAction.NONE
+                    com.example.nordassistant.data.DarwinboxShiftTracker.clearPendingAction(this)
+                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                    notificationManager?.cancel(com.example.nordassistant.data.DarwinboxAlarmReceiver.NOTIFICATION_ID)
+                    com.example.nordassistant.data.DevilVoiceSpeaker.speak(
+                        this,
+                        "Shift check-out confirmed at $checkoutStr, Boss! Shift complete. Excellent work today."
+                    )
                 }
             }
 
@@ -267,8 +365,7 @@ class DevilAccessibilityService : AccessibilityService() {
                         for (node in nodes) {
                             Log.i(TAG, "Found Darwinbox Submit/Done button by view ID ($viewId). Clicking now!")
                             if (clickNodeOrCoordinates(node)) {
-                                pendingDarwinboxAction = DarwinboxAction.NONE
-                                Log.i(TAG, "DARWINBOX CHECK-IN / CHECK-OUT DONE HIT SUCCESSFULLY via ID $viewId!")
+                                onDoneSuccess("ID $viewId")
                                 return
                             }
                         }
@@ -284,16 +381,28 @@ class DevilAccessibilityService : AccessibilityService() {
                 val doneCandidateNodes = mutableListOf<AccessibilityNodeInfo>()
                 findNodesByTextOrDescription(rootNode, submitKeywords, doneCandidateNodes)
                 for (node in doneCandidateNodes) {
-                    Log.i(TAG, "Found Darwinbox Done / Submit candidate by text: '${node.text ?: node.contentDescription}'")
+                    val textOrDesc = (node.text ?: node.contentDescription ?: "").toString().trim()
+                    Log.i(TAG, "Found Darwinbox Done / Submit candidate by text: '$textOrDesc'")
                     if (clickNodeOrCoordinates(node)) {
-                        pendingDarwinboxAction = DarwinboxAction.NONE
-                        Log.i(TAG, "DARWINBOX SUBMIT / DONE HIT SUCCESSFULLY via text/description!")
+                        onDoneSuccess("text/desc '$textOrDesc'")
                         return
                     }
                 }
             }
 
-            // ── Step 1: On Dashboard -> Click "Check In" / "Check Out" shortcut ──
+            // ── Step 1a: Check for Darwinbox v9.4+ "Try now" tailored dashboard banner ──
+            for (rootNode in rootNodes) {
+                val tryNowNodes = rootNode.findAccessibilityNodeInfosByViewId("com.darwinbox.darwinbox:id/textViewTryNow")
+                if (!tryNowNodes.isNullOrEmpty()) {
+                    for (tNode in tryNowNodes) {
+                        Log.i(TAG, "Tapping Darwinbox 'Try now' to enter tailored dashboard...")
+                        clickNodeOrCoordinates(tNode)
+                        return
+                    }
+                }
+            }
+
+            // ── Step 1b: On Dashboard -> Click "Check In" / "Check Out" shortcut / card ──
             val shortcutViewIds = if (pendingDarwinboxAction == DarwinboxAction.CHECK_OUT) {
                 listOf(
                     "com.darwinbox.darwinbox:id/checkOutShortcut",
@@ -347,7 +456,6 @@ class DevilAccessibilityService : AccessibilityService() {
             }
 
             // Fallback for Dashboard by text & content description
-            // IMPORTANT: Avoid broad keywords like "in"/"out" — they false-match "Verify with fingerprint" etc.
             val dashboardKeywords = if (pendingDarwinboxAction == DarwinboxAction.CHECK_OUT) {
                 listOf(
                     "check out", "checkout", "check-out", "clock out", "clockout", "clock-out",
@@ -356,7 +464,7 @@ class DevilAccessibilityService : AccessibilityService() {
                 )
             } else {
                 listOf(
-                    "check in", "checkin", "check-in", "clock in", "clockin", "clock-in",
+                    "lets get to work", "check in", "checkin", "check-in", "clock in", "clockin", "clock-in",
                     "punch in", "punchin", "tap to check in", "click here to check in",
                     "check in now", "mark in", "swipe in"
                 )
@@ -374,16 +482,58 @@ class DevilAccessibilityService : AccessibilityService() {
                         Log.w(TAG, "Skipping false-match node: '$nodeLabel' (contains excluded pattern)")
                         continue
                     }
-                    Log.i(TAG, "Found Darwinbox Dashboard button by text: '${node.text ?: node.contentDescription}'")
-                    if (clickNodeOrCoordinates(node)) {
-                        Log.i(TAG, "Clicked Dashboard shortcut by text search, awaiting submission screen...")
-                        return
+                    val bounds = Rect()
+                    node.getBoundsInScreen(bounds)
+                    val isCard = nodeLabel.contains("lets get to work") ||
+                                (bounds.width() > 600 && (nodeLabel.contains("check in") || nodeLabel.contains("check out")))
+
+                    if (isCard) {
+                        Log.i(TAG, "Found Darwinbox Flutter Card: '$nodeLabel' bounds: $bounds. Clicking button on right side...")
+                        if (clickDarwinboxCardButton(node)) {
+                            Log.i(TAG, "Clicked card button via hardware touch gesture, awaiting submission screen...")
+                            return
+                        }
+                    } else {
+                        Log.i(TAG, "Found Darwinbox Dashboard button by text: '$nodeLabel'")
+                        if (clickNodeOrCoordinates(node)) {
+                            Log.i(TAG, "Clicked Dashboard shortcut by text search, awaiting submission screen...")
+                            return
+                        }
                     }
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error in tryDarwinboxAutomation", e)
         }
+    }
+
+    private fun clickDarwinboxCardButton(node: AccessibilityNodeInfo): Boolean {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        if (!bounds.isEmpty && bounds.width() > 0 && bounds.height() > 0) {
+            // Button is on the right side of the card (around 82% of width)
+            val clickX = bounds.left + bounds.width() * 0.82f
+            val clickY = bounds.centerY().toFloat()
+            Log.i(TAG, "Dispatching hardware touch gesture on card button at ($clickX, $clickY) bounds: $bounds")
+            val path = Path().apply {
+                moveTo(clickX, clickY)
+            }
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
+                .build()
+            val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    super.onCompleted(gestureDescription)
+                    Log.i(TAG, "Card button touch gesture COMPLETED at ($clickX, $clickY)")
+                }
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    super.onCancelled(gestureDescription)
+                    Log.w(TAG, "Card button touch gesture CANCELLED at ($clickX, $clickY)")
+                }
+            }, null)
+            return dispatched
+        }
+        return false
     }
 
     private fun clickSendButton(node: AccessibilityNodeInfo): Boolean {

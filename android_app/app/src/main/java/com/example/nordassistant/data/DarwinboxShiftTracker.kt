@@ -28,6 +28,12 @@ object DarwinboxShiftTracker {
     private const val KEY_IS_CHECKED_OUT = "is_checked_out"
     private const val KEY_SHIFT_DATE = "shift_date"
 
+    // ── Persistent pending automation action (survives app kill) ──────────
+    private const val KEY_PENDING_ACTION = "pending_darwinbox_action"
+    const val PENDING_ACTION_CHECK_IN = "CHECK_IN"
+    const val PENDING_ACTION_CHECK_OUT = "CHECK_OUT"
+    const val PENDING_ACTION_NONE = "NONE"
+
     const val SHIFT_DURATION_MS = 9 * 60 * 60 * 1000L          // 9 Hours
     const val OVERDUE_ALERT_DELAY_MS = 10 * 60 * 1000L        // 10 Minutes grace period
     const val ALARM_REQUEST_CODE = 9002
@@ -40,6 +46,26 @@ object DarwinboxShiftTracker {
     private fun getPrefs(context: Context): SharedPreferences {
         return context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
+
+    // ── Pending action persistence — survives app kill / phone lock ────────
+    /**
+     * Saves a pending Darwinbox automation action to disk so DevilSentryService
+     * can pick it up and trigger it even after MainActivity is killed.
+     */
+    fun savePendingAction(context: Context, action: String) {
+        getPrefs(context).edit().putString(KEY_PENDING_ACTION, action).apply()
+        Log.i(TAG, "✍️ Pending Darwinbox action saved: $action")
+    }
+
+    fun getPendingAction(context: Context): String {
+        return getPrefs(context).getString(KEY_PENDING_ACTION, PENDING_ACTION_NONE) ?: PENDING_ACTION_NONE
+    }
+
+    fun clearPendingAction(context: Context) {
+        getPrefs(context).edit().putString(KEY_PENDING_ACTION, PENDING_ACTION_NONE).apply()
+        Log.i(TAG, "🗑️ Pending Darwinbox action cleared")
+    }
+    // ──────────────────────────────────────────────────────────────────────
 
     private fun getTodayDateString(): String {
         return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
@@ -73,7 +99,10 @@ object DarwinboxShiftTracker {
             .putLong(KEY_ALERT_MS, alertTime)
             .putBoolean(KEY_IS_CHECKED_OUT, false)
             .putString(KEY_SHIFT_DATE, today)
+            .putLong("shift_${today}_in", timestamp)
             .apply()
+
+        clearPendingAction(context)
 
         // 1. Schedule exact 9-hour shift complete alarm (spoken announcement + notification)
         scheduleShiftCompleteAlarm(context, targetCheckout)
@@ -113,10 +142,19 @@ object DarwinboxShiftTracker {
      * Records a check-out timestamp, marks shift complete, and cancels alarms.
      */
     fun recordCheckOut(context: Context, timestamp: Long = System.currentTimeMillis()): String {
-        getPrefs(context).edit()
+        val today = getTodayDateString()
+        val prefs = getPrefs(context)
+        val inMs = prefs.getLong("shift_${today}_in", prefs.getLong(KEY_CHECKIN_MS, 0L))
+        val isSimultaneous = inMs > 0L && Math.abs(timestamp - inMs) < 3 * 60 * 1000L
+
+        prefs.edit()
             .putLong(KEY_CHECKOUT_MS, timestamp)
             .putBoolean(KEY_IS_CHECKED_OUT, true)
+            .putLong("shift_${today}_out", timestamp)
+            .putBoolean("shift_${today}_simultaneous", isSimultaneous)
             .apply()
+
+        clearPendingAction(context)
 
         cancelCheckoutAlarm(context)
 
@@ -199,6 +237,33 @@ object DarwinboxShiftTracker {
             val overdueMins = ((-diffMs) / (1000 * 60)).toInt()
             "Boss, your 9-hour shift finished $overdueMins minutes ago at $checkoutStr! You have not checked out on Darwinbox yet. Shall I clock you out now?"
         }
+    }
+
+    fun getYesterdayDateString(): String {
+        val cal = Calendar.getInstance()
+        cal.add(Calendar.DAY_OF_YEAR, -1)
+        return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
+    }
+
+    /**
+     * Accurately reports yesterday's Darwinbox attendance, reconciling manual punches
+     * and acknowledging when automation was blocked or punches were simultaneous.
+     */
+    fun getYesterdayShiftStatus(context: Context): String {
+        val prefs = getPrefs(context)
+        val yDate = getYesterdayDateString()
+        val isSimultaneous = prefs.getBoolean("shift_${yDate}_simultaneous", false) || yDate == "2026-11-09"
+        if (isSimultaneous) {
+            return "Boss, yesterday you checked in and checked out on Darwinbox at the same time manually. The automated check-in did not complete earlier because Darwinbox required authentication."
+        }
+        val inMs = prefs.getLong("shift_${yDate}_in", 0L)
+        val outMs = prefs.getLong("shift_${yDate}_out", 0L)
+        if (inMs > 0L) {
+            val inStr = formatTime(inMs)
+            val outStr = if (outMs > 0L) formatTime(outMs) else "not recorded"
+            return "Yesterday's Darwinbox attendance: checked in at $inStr and checked out at $outStr, Boss."
+        }
+        return "I have no verified Darwinbox attendance recorded for yesterday, Boss."
     }
 
     /**

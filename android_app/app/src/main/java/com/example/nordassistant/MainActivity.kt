@@ -1772,6 +1772,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
+            // 2.80 Yesterday's Darwinbox shift / attendance logs
+            trimmed.contains(Regex("(?i)\\byesterday(?:'s)?\\b")) &&
+            trimmed.contains(Regex("(?i)\\b(darwinbox|darwin\\s*box|attendance|shift|check\\s*in|check\\s*out|punch|logs?)\\b")) &&
+            (trimmed.contains(Regex("(?i)\\b(darwinbox|darwin\\s*box|attendance|shift|check\\s*in|check\\s*out)\\b")) ||
+             trimmed.contains(Regex("(?i)\\b(darwin\\s*box\\s*logs?|attendance\\s*logs?|shift\\s*logs?)\\b"))) -> {
+                val status = DarwinboxShiftTracker.getYesterdayShiftStatus(this)
+                speakResponse(status, continueConversation = true)
+            }
+
             // 2.81 Yesterday's conversation logs
             trimmed.contains(Regex("(?i)\\byesterday(?:'s)?\\b")) &&
             trimmed.contains(Regex("(?i)\\b(what|talk|did|say|logs?|conversation|chat|summary|topics?|do)\\b")) -> {
@@ -2210,15 +2219,21 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             DevilAccessibilityService.triggerDarwinbox(action)
         }, 3000L)
 
+        // ── Save pending action to disk so DevilSentryService can retry if
+        //    MainActivity is killed before the accessibility click completes ──
+        val pendingActionStr = if (action == DevilAccessibilityService.DarwinboxAction.CHECK_IN)
+            DarwinboxShiftTracker.PENDING_ACTION_CHECK_IN
+        else
+            DarwinboxShiftTracker.PENDING_ACTION_CHECK_OUT
+        DarwinboxShiftTracker.savePendingAction(this, pendingActionStr)
+
+        // Speak a holding message only — do NOT record shift times yet.
+        // Times are recorded ONLY after DevilAccessibilityService confirms Submit was clicked.
         try {
             if (action == DevilAccessibilityService.DarwinboxAction.CHECK_IN) {
-                val info = DarwinboxShiftTracker.recordCheckIn(this)
-                speakResponse("Opening Darwinbox and clocking you in, Boss! Shift check-in logged at ${info.checkInTimeStr}. Your 9-hour shift completes at ${info.checkoutTimeStr}. I will announce out loud when your 9-hour shift is completed and when it's time to check out.")
+                speakResponse("Opening Darwinbox to clock you in, Boss. I will confirm once your attendance is submitted.")
             } else {
-                val checkoutStr = DarwinboxShiftTracker.recordCheckOut(this)
-                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-                notificationManager?.cancel(DarwinboxAlarmReceiver.NOTIFICATION_ID)
-                speakResponse("Opening Darwinbox and submitting your check out, Boss. Shift complete at $checkoutStr! Excellent work today.")
+                speakResponse("Opening Darwinbox to clock you out, Boss. I will confirm once your checkout is submitted.")
             }
         } catch (e: Exception) {
             Log.e("MainActivity", "Failed to launch Darwinbox", e)

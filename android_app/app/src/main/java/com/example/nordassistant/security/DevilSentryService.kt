@@ -110,6 +110,46 @@ class DevilSentryService : Service() {
     private var shiftTimerRunnable: Runnable? = null
     private var shiftCompleteRunnable: Runnable? = null
 
+    private val screenReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_USER_PRESENT || intent?.action == Intent.ACTION_SCREEN_ON) {
+                checkAndExecutePendingDarwinboxAction()
+            }
+        }
+    }
+
+    fun checkAndExecutePendingDarwinboxAction() {
+        val pending = DarwinboxShiftTracker.getPendingAction(this)
+        if (pending == DarwinboxShiftTracker.PENDING_ACTION_NONE) return
+
+        Log.i(TAG, "🛡️ Sentry detected pending Darwinbox action: $pending. Launching Darwinbox...")
+        val launchIntent = Intent().apply {
+            component = android.content.ComponentName(
+                "com.darwinbox.darwinbox",
+                "com.darwinbox.splashscreen.ui.SplashScreenActivity"
+            )
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        try {
+            startActivity(launchIntent)
+        } catch (e: Exception) {
+            val fallback = packageManager.getLaunchIntentForPackage("com.darwinbox.darwinbox")?.apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            if (fallback != null) {
+                startActivity(fallback)
+            }
+        }
+        val actionEnum = if (pending == DarwinboxShiftTracker.PENDING_ACTION_CHECK_OUT)
+            com.example.nordassistant.DevilAccessibilityService.DarwinboxAction.CHECK_OUT
+        else
+            com.example.nordassistant.DevilAccessibilityService.DarwinboxAction.CHECK_IN
+
+        mainHandler.postDelayed({
+            com.example.nordassistant.DevilAccessibilityService.triggerDarwinbox(actionEnum)
+        }, 2500L)
+    }
+
     private val wakeWordRegex = Regex(
         "(?i)\\b(?:" +
             "(?:hey|ok|hello|hi|hay|a|the|ha)?\\s*" +
@@ -139,6 +179,17 @@ class DevilSentryService : Service() {
         createNotificationChannel()
         isServiceActive = true
         isPausedForConversation = false
+
+        try {
+            val filter = android.content.IntentFilter().apply {
+                addAction(Intent.ACTION_USER_PRESENT)
+                addAction(Intent.ACTION_SCREEN_ON)
+            }
+            registerReceiver(screenReceiver, filter)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error registering screenReceiver", e)
+        }
+
         Log.i(TAG, "🛡️ DevilSentryService created and active")
     }
 
@@ -167,6 +218,7 @@ class DevilSentryService : Service() {
         isPausedForConversation = false
         startSentryListening()
         armBackupShiftTimer()
+        checkAndExecutePendingDarwinboxAction()
 
         return START_STICKY
     }
@@ -430,6 +482,9 @@ class DevilSentryService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        try {
+            unregisterReceiver(screenReceiver)
+        } catch (_: Exception) {}
         stopSentryMode()
     }
 
