@@ -12,15 +12,18 @@ import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
-import com.example.nordassistant.WhatsAppNotificationService
+import com.example.nordassistant.audio.BluetoothAudioHelper
 import java.util.Locale
 
 /**
  * Universal voice announcer for DEVIL alerts (e.g. Darwinbox shift completion,
- * overtime checkout reminders, urgent alarms). Guarantees spoken audio even when:
- * 1. Screen is OFF or phone is locked (acquires WakeLock).
- * 2. Phone is in Silent or Vibrate mode (routes via STREAM_MUSIC at boosted volume).
- * 3. App is running in the background (uses pre-warmed WhatsAppNotificationService or self-initialized TTS).
+ * attendance confirmations, urgent alarms).
+ * 
+ * Crucial Audio Focus Contract:
+ * - Requests transient audio focus (may duck) while speaking.
+ * - ALWAYS abandons audio focus in onDone / onError to immediately restore
+ *   full-volume background music (Spotify, YouTube Music, VLC, etc.).
+ * - Resets audio mode back to MODE_NORMAL so Bluetooth returns to high-quality A2DP stereo.
  */
 object DevilVoiceSpeaker : TextToSpeech.OnInitListener {
     private const val TAG = "DevilVoiceSpeaker"
@@ -29,6 +32,12 @@ object DevilVoiceSpeaker : TextToSpeech.OnInitListener {
     private val pendingPhrases = mutableListOf<String>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wakeLock: PowerManager.WakeLock? = null
+    private var audioManager: AudioManager? = null
+    private var activeFocusRequest: AudioFocusRequest? = null
+
+    private val abandonFocusRunnable = Runnable {
+        abandonAudioFocus()
+    }
 
     fun speak(context: Context, phrase: String) {
         val appContext = context.applicationContext
@@ -40,23 +49,16 @@ object DevilVoiceSpeaker : TextToSpeech.OnInitListener {
     private fun executeSpeak(context: Context, phrase: String) {
         Log.i(TAG, "🗣️ Spoken alert requested: \"$phrase\"")
 
-        // 1. Boost volume for STREAM_MUSIC so it is heard loud & clear even on Silent/Vibrate
-        boostAudioVolume(context)
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        audioManager = am
 
-        // 2. Keep CPU awake while audio synthesizes and speaks
-        acquireWakeLock(context, 30000L)
+        // 1. Keep CPU awake while audio synthesizes and speaks
+        acquireWakeLock(context, 15000L)
 
-        // 3. Request audio focus
+        // 2. Request transient audio focus with ducking while speaking
         requestAudioFocus(context)
 
-        // 4. Prefer pre-warmed WhatsAppNotificationService TTS if available
-        if (WhatsAppNotificationService.isReady()) {
-            Log.i(TAG, "Using pre-warmed WhatsAppNotificationService TTS for instant speech")
-            WhatsAppNotificationService.speakOutLoud(phrase)
-            return
-        }
-
-        // 5. Fallback singleton TTS engine
+        // 3. Fallback singleton TTS engine
         if (fallbackTts == null) {
             try {
                 fallbackTts = TextToSpeech(context, this)
@@ -71,6 +73,10 @@ object DevilVoiceSpeaker : TextToSpeech.OnInitListener {
             Log.i(TAG, "Fallback TTS initializing... phrase queued: \"$phrase\"")
             pendingPhrases.add(phrase)
         }
+
+        // Safety fallback: auto-abandon audio focus after 8 seconds in case onDone is missed
+        mainHandler.removeCallbacks(abandonFocusRunnable)
+        mainHandler.postDelayed(abandonFocusRunnable, 8000L)
     }
 
     override fun onInit(status: Int) {
@@ -86,12 +92,18 @@ object DevilVoiceSpeaker : TextToSpeech.OnInitListener {
 
                     override fun onDone(utteranceId: String?) {
                         Log.i(TAG, "DevilVoiceSpeaker: speech completed ($utteranceId)")
-                        releaseWakeLock()
+                        mainHandler.post {
+                            releaseWakeLock()
+                            abandonAudioFocus()
+                        }
                     }
 
                     override fun onError(utteranceId: String?) {
                         Log.e(TAG, "DevilVoiceSpeaker: speech error ($utteranceId)")
-                        releaseWakeLock()
+                        mainHandler.post {
+                            releaseWakeLock()
+                            abandonAudioFocus()
+                        }
                     }
                 })
             }
@@ -105,6 +117,7 @@ object DevilVoiceSpeaker : TextToSpeech.OnInitListener {
             Log.e(TAG, "DevilVoiceSpeaker: Fallback TTS initialization failed with status $status")
             isFallbackReady = false
             releaseWakeLock()
+            abandonAudioFocus()
         }
     }
 
@@ -117,40 +130,52 @@ object DevilVoiceSpeaker : TextToSpeech.OnInitListener {
         engine.speak(phrase, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
     }
 
-    private fun boostAudioVolume(context: Context) {
-        try {
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
-            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-            if (current < (max * 0.75).toInt()) {
-                val target = (max * 0.85).toInt().coerceAtLeast(1)
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
-                Log.i(TAG, "Boosted STREAM_MUSIC volume from $current to $target for DEVIL voice alert")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not adjust audio volume", e)
-        }
-    }
-
     private fun requestAudioFocus(context: Context) {
         try {
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            val am = audioManager ?: (context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager) ?: return
+            audioManager = am
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                     .setAudioAttributes(
                         AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
                             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                             .build()
                     )
+                    .setOnAudioFocusChangeListener { /* no-op */ }
                     .build()
-                audioManager.requestAudioFocus(focusRequest)
+                activeFocusRequest = focusRequest
+                am.requestAudioFocus(focusRequest)
             } else {
                 @Suppress("DEPRECATION")
-                audioManager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
             }
+            Log.d(TAG, "Audio focus requested (TRANSIENT_MAY_DUCK)")
         } catch (e: Exception) {
             Log.w(TAG, "Could not request audio focus", e)
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        mainHandler.removeCallbacks(abandonFocusRunnable)
+        try {
+            val am = audioManager
+            if (am != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    activeFocusRequest?.let {
+                        am.abandonAudioFocusRequest(it)
+                    }
+                    activeFocusRequest = null
+                } else {
+                    @Suppress("DEPRECATION")
+                    am.abandonAudioFocus(null)
+                }
+                Log.i(TAG, "Audio focus abandoned - background music volume restored to 100%")
+            }
+            // Ensure Bluetooth routing is in normal mode
+            BluetoothAudioHelper.resetToNormal()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error abandoning audio focus", e)
         }
     }
 
@@ -179,4 +204,3 @@ object DevilVoiceSpeaker : TextToSpeech.OnInitListener {
         } catch (_: Exception) {}
     }
 }
-

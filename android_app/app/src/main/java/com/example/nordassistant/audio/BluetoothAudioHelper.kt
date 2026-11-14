@@ -35,20 +35,22 @@ object BluetoothAudioHelper {
 
         registerDeviceCallback(am)
         registerScoReceiver(app)
-        routeToBluetoothHeadsetIfAvailable()
+        // Keep in MODE_NORMAL so background music/media plays in full quality without ducking
+        resetToNormal()
     }
 
     private fun registerDeviceCallback(am: AudioManager) {
         if (deviceCallback != null) return
         deviceCallback = object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
-                Log.d(TAG, "Audio devices added, checking for Bluetooth earbuds/headset...")
-                mainHandler.postDelayed({ routeToBluetoothHeadsetIfAvailable() }, 300)
+                Log.d(TAG, "Audio devices added, Bluetooth headset available for on-demand routing.")
             }
 
             override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
                 Log.d(TAG, "Audio devices removed, refreshing audio routing...")
-                mainHandler.postDelayed({ routeToBluetoothHeadsetIfAvailable() }, 300)
+                if (isScoActive) {
+                    resetToNormal()
+                }
             }
         }
         am.registerAudioDeviceCallback(deviceCallback, mainHandler)

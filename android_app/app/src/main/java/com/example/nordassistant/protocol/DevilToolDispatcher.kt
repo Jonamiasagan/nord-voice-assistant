@@ -15,6 +15,12 @@ sealed class DevilToolAction {
     data class Navigate(val destination: String) : DevilToolAction()
     data class StoreMemory(val key: String, val fact: String) : DevilToolAction()
     data class RecallMemory(val key: String) : DevilToolAction()
+    data class ToggleFlashlight(val enable: Boolean?) : DevilToolAction()
+    object OpenInternetSettings : DevilToolAction()
+    object CheckWifiStatus : DevilToolAction()
+    object OpenBluetoothSettings : DevilToolAction()
+    object CheckBatteryStatus : DevilToolAction()
+    data class ControlVolume(val volumeAction: String, val percent: Int? = null) : DevilToolAction()
 }
 
 /**
@@ -24,9 +30,25 @@ object DevilToolDispatcher {
     private const val TAG = "DevilToolDispatcher"
 
     fun parseToolCall(response: String): DevilToolAction? {
-        val pattern = Regex("(?s)<tool_call>\\s*(\\{.*?\\})\\s*</tool_call>")
-        val match = pattern.find(response) ?: return null
-        val jsonStr = match.groupValues[1]
+        val trimmed = response.trim()
+        when {
+            trimmed.contains("TOOL_BATTERY") -> return DevilToolAction.CheckBatteryStatus
+            trimmed.contains("TOOL_FLASHLIGHT_ON") -> return DevilToolAction.ToggleFlashlight(true)
+            trimmed.contains("TOOL_FLASHLIGHT_OFF") -> return DevilToolAction.ToggleFlashlight(false)
+            trimmed.contains("TOOL_WIFI") -> return DevilToolAction.CheckWifiStatus
+            trimmed.contains("TOOL_VOLUME_UP") -> return DevilToolAction.ControlVolume("up")
+            trimmed.contains("TOOL_VOLUME_DOWN") -> return DevilToolAction.ControlVolume("down")
+        }
+
+        val jsonStr = when {
+            response.contains("<tool_call>") -> {
+                Regex("(?s)<tool_call>\\s*(\\{.*?\\})\\s*(?:</tool_call>|$)").find(response)?.groupValues?.get(1)
+            }
+            response.trim().startsWith("{") && response.trim().endsWith("}") -> {
+                response.trim()
+            }
+            else -> null
+        } ?: return null
 
         return try {
             val json = JSONObject(jsonStr)
@@ -72,6 +94,32 @@ object DevilToolDispatcher {
                 "recall", "recall_memory" -> {
                     val key = json.optString("key")
                     if (key.isNotBlank()) DevilToolAction.RecallMemory(key) else null
+                }
+                "flashlight", "torch" -> {
+                    val stateStr = json.optString("state").lowercase()
+                    val enable = if (json.has("enable")) {
+                        json.optBoolean("enable")
+                    } else if (stateStr == "on" || stateStr == "enable") {
+                        true
+                    } else if (stateStr == "off" || stateStr == "disable") {
+                        false
+                    } else null
+                    DevilToolAction.ToggleFlashlight(enable)
+                }
+                "wifi", "internet", "network" -> {
+                    val type = json.optString("type").lowercase()
+                    if (type == "status" || json.optBoolean("status", false)) {
+                        DevilToolAction.CheckWifiStatus
+                    } else {
+                        DevilToolAction.OpenInternetSettings
+                    }
+                }
+                "bluetooth" -> DevilToolAction.OpenBluetoothSettings
+                "battery" -> DevilToolAction.CheckBatteryStatus
+                "volume" -> {
+                    val level = json.optString("level").lowercase()
+                    val pct = if (json.has("percent")) json.optInt("percent") else null
+                    DevilToolAction.ControlVolume(level, pct)
                 }
                 else -> null
             }

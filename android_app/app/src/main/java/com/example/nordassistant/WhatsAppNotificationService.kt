@@ -234,6 +234,16 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
                 } catch (e: Exception) {
                     Log.w(TAG, "AudioAttributes setting fallback", e)
                 }
+
+                engine.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {}
+                    override fun onDone(utteranceId: String?) {
+                        com.example.nordassistant.audio.BluetoothAudioHelper.resetToNormal()
+                    }
+                    override fun onError(utteranceId: String?) {
+                        com.example.nordassistant.audio.BluetoothAudioHelper.resetToNormal()
+                    }
+                })
             }
             isTtsReady = true
             Log.i(TAG, "DEVIL Call Announcer TTS pre-warmed & ready with 0 latency (vibrate-bypass ready)")
@@ -431,10 +441,11 @@ class WhatsAppNotificationService : NotificationListenerService(), TextToSpeech.
             }
         }
 
-        // Politely announce incoming personal message once (never loops, never for groups, never if already spoken)
-        if (isNewPersonalMessage && !isCallRinging && !isAlreadySpoken(sender, messageContent)) {
-            announcePersonalWhatsAppMessage(sender, messageContent, sbn.key)
-        }
+        // Message is safely stored in messageHistory for on-demand query ("read messages").
+        // Do NOT automatically blurt out incoming/unread personal text messages out loud uninvited.
+        // if (isNewPersonalMessage && !isCallRinging && !isAlreadySpoken(sender, messageContent)) {
+        //     announcePersonalWhatsAppMessage(sender, messageContent, sbn.key)
+        // }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {

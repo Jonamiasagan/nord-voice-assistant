@@ -561,25 +561,6 @@ class BossMemoryVault private constructor(context: Context) :
             return "According to what we stored earlier, Boss: ${mem.key} is ${mem.fact}."
         }
 
-        // 3. Check recent conversation journal for matching user questions
-        loadRamCacheIfNeeded()
-        synchronized(ramJournalCache) {
-            val stopWords = setOf("what", "is", "the", "a", "an", "tell", "me", "about", "how", "do", "you", "know", "can", "again")
-            val queryKeywords = clean.split(" ", "?", ".").filter { it.length > 2 && it !in stopWords }
-
-            if (queryKeywords.isNotEmpty()) {
-                val match = ramJournalCache.reversed().firstOrNull { entry ->
-                    val entryKeywords = entry.userQuery.lowercase().split(" ", "?", ".").toSet()
-                    val matchCount = queryKeywords.count { it in entryKeywords }
-                    matchCount >= 2 || (queryKeywords.size == 1 && queryKeywords.first() in entryKeywords)
-                }
-
-                if (match != null) {
-                    return "We already covered this earlier, Boss! When you asked '${match.userQuery}', I noted: ${match.assistantReply}"
-                }
-            }
-        }
-
         return null
     }
 }

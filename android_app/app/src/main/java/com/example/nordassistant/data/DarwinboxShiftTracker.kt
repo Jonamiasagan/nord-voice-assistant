@@ -65,6 +65,22 @@ object DarwinboxShiftTracker {
         getPrefs(context).edit().putString(KEY_PENDING_ACTION, PENDING_ACTION_NONE).apply()
         Log.i(TAG, "🗑️ Pending Darwinbox action cleared")
     }
+
+    fun clearTodayShift(context: Context) {
+        val today = getTodayDateString()
+        getPrefs(context).edit()
+            .remove(KEY_CHECKIN_MS)
+            .remove(KEY_TARGET_CHECKOUT_MS)
+            .remove(KEY_ALERT_MS)
+            .remove(KEY_IS_CHECKED_OUT)
+            .remove(KEY_SHIFT_DATE)
+            .remove("shift_${today}_in")
+            .remove("shift_${today}_out")
+            .putString(KEY_PENDING_ACTION, PENDING_ACTION_NONE)
+            .apply()
+        cancelCheckoutAlarm(context)
+        Log.i(TAG, "🗑️ Today's shift record cleared")
+    }
     // ──────────────────────────────────────────────────────────────────────
 
     private fun getTodayDateString(): String {

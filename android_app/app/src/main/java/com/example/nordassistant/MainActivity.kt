@@ -1571,7 +1571,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             "(?i)^(?:can\\s+you\\s+|please\\s+)?text\\s+(?:to\\s+)?([a-zA-Z0-9+\\s]{1,20}?)\\s*[:,]?\\s+(.+)$"
         )
         val shortTellRegex = Regex(
-            "(?i)^(?:can\\s+you\\s+|please\\s+)?tell\\s+([a-zA-Z0-9+\\s]{1,20}?)\\s*(?:on\\s+whats?app\\s+)?(?:that|saying|to)?\\s+(.+)$"
+            "(?i)^(?:can\\s+you\\s+|please\\s+)?tell\\s+(?!me\\b)([a-zA-Z0-9+\\s]{1,20}?)\\s*(?:on\\s+whats?app\\s+)?(?:that|saying|to)?\\s+(.+)$"
         )
         val shortSendRegex = Regex(
             "(?i)^(?:can\\s+you\\s+|please\\s+)?send\\s+(?:to\\s+)?(myself|me|you|thambi|amma|baddu|bethol|akka|syam)\\s+(.+)$"
@@ -2181,6 +2181,97 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 handleDarwinboxAttendance(DevilAccessibilityService.DarwinboxAction.CHECK_OUT)
             }
 
+            // ── 9g. Hardware & Device Subsystems (Flashlight, Wi-Fi, Bluetooth, Battery, Volume) ──
+            // Flashlight On
+            trimmed.contains(Regex("(?i)\\b(?:turn\\s+on|enable|start|switch\\s+on)\\s+(?:the\\s+)?(?:flashlight|torch)\\b")) ||
+            trimmed.contains(Regex("(?i)\\b(?:flashlight|torch)\\s+on\\b")) -> {
+                val (_, msg) = com.example.nordassistant.device.DeviceControlHelper.setFlashlight(this, true)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Flashlight Off
+            trimmed.contains(Regex("(?i)\\b(?:turn\\s+off|disable|stop|switch\\s+off)\\s+(?:the\\s+)?(?:flashlight|torch)\\b")) ||
+            trimmed.contains(Regex("(?i)\\b(?:flashlight|torch)\\s+off\\b")) -> {
+                val (_, msg) = com.example.nordassistant.device.DeviceControlHelper.setFlashlight(this, false)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Flashlight Toggle
+            trimmed.contains(Regex("(?i)\\b(?:toggle|switch)\\s+(?:the\\s+)?(?:flashlight|torch)\\b")) ||
+            trimmed.equals("flashlight", ignoreCase = true) || trimmed.equals("torch", ignoreCase = true) -> {
+                val (_, msg) = com.example.nordassistant.device.DeviceControlHelper.setFlashlight(this, null)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Wi-Fi / Internet Settings & Quick Panel
+            trimmed.contains(Regex("(?i)\\b(?:turn\\s+on|turn\\s+off|enable|disable|toggle|open|show)\\s+(?:the\\s+)?(?:wi-?fi|internet|data|network)\\b")) ||
+            trimmed.contains(Regex("(?i)\\b(?:wi-?fi|internet|data|network)\\s+(?:settings|panel|options)\\b")) -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.openInternetPanel(this)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Wi-Fi / Internet Status Check
+            trimmed.contains(Regex("(?i)\\b(?:am\\s+i\\s+connected|is\\s+internet\\s+working|internet\\s+status|wi-?fi\\s+status|network\\s+status|connection\\s+status)\\b")) -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.getInternetStatus(this)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Bluetooth Settings & Quick Panel
+            trimmed.contains(Regex("(?i)\\b(?:turn\\s+on|turn\\s+off|enable|disable|toggle|open|show)\\s+(?:the\\s+)?bluetooth\\b")) ||
+            trimmed.contains(Regex("(?i)\\bbluetooth\\s+(?:settings|panel|options)\\b")) -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.openBluetoothPanel(this)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Battery Status Check
+            trimmed.contains(Regex("(?i)\\b(?:how\\s+much\\s+battery|battery\\s+(?:percentage|percent|level|status|life))\\b")) -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.getBatteryStatus(this)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Volume Up
+            trimmed.contains(Regex("(?i)\\b(?:volume\\s+up|increase\\s+(?:the\\s+)?volume|make\\s+it\\s+louder|louder)\\b")) -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.adjustVolume(this, android.media.AudioManager.ADJUST_RAISE)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Volume Down
+            trimmed.contains(Regex("(?i)\\b(?:volume\\s+down|decrease\\s+(?:the\\s+)?volume|lower\\s+(?:the\\s+)?volume|quieter)\\b")) -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.adjustVolume(this, android.media.AudioManager.ADJUST_LOWER)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Volume Max
+            trimmed.contains(Regex("(?i)\\b(?:max\\s+volume|maximum\\s+volume|full\\s+volume)\\b")) -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.setMaxVolume(this)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Volume Mute
+            trimmed.contains(Regex("(?i)\\b(?:mute\\s+volume|mute|silence\\s+volume)\\b")) -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.setMuteVolume(this, true)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Volume Unmute
+            trimmed.contains(Regex("(?i)\\b(?:unmute\\s+volume|unmute)\\b")) -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.setMuteVolume(this, false)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Volume Set Percent (e.g. "set volume to 80%")
+            trimmed.contains(Regex("(?i)\\bset\\s+volume\\s+(?:to\\s+)?(\\d{1,3})\\s*%?\\b")) -> {
+                val match = Regex("(?i)\\bset\\s+volume\\s+(?:to\\s+)?(\\d{1,3})\\s*%?\\b").find(trimmed)
+                val pct = match?.groupValues?.get(1)?.toIntOrNull() ?: 50
+                val msg = com.example.nordassistant.device.DeviceControlHelper.setVolumePercent(this, pct)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // User Identity & Name Check
+            trimmed.contains(Regex("(?i)\\b(?:what\\s+is\\s+my\\s+name|tell\\s+me\\s+my\\s+name|do\\s+you\\s+know\\s+my\\s+name|who\\s+am\\s+i)\\b")) -> {
+                speakResponse("You are my Boss, Bhaman!", continueConversation = true)
+            }
+
             // ── 10. General Apps ──
             openAppRegex.matches(trimmed) -> {
                 val appName = openAppRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: return
@@ -2412,6 +2503,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val clean = input.trim()
             .replace(Regex("^(?:can\\s+you\\s+|please\\s+)", RegexOption.IGNORE_CASE), "")
             .trim()
+
+        // "tell me ..." is asking DEVIL a question/command, NEVER a WhatsApp dispatch
+        if (clean.startsWith("tell me", ignoreCase = true) || clean.startsWith("say to me", ignoreCase = true)) {
+            return null
+        }
 
         val prefixRegex = Regex(
             "(?i)^(?:(?:send\\s+(?:a\\s+)?)?whats?app(?:\\s+message)?(?:\\s+to)?|" +
@@ -3345,6 +3441,42 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 } else {
                     speakResponse("I couldn't find any memory stored for ${action.key}, Boss.", continueConversation = true)
                 }
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.ToggleFlashlight -> {
+                val (_, msg) = com.example.nordassistant.device.DeviceControlHelper.setFlashlight(this, action.enable)
+                speakResponse(msg, continueConversation = true)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.OpenInternetSettings -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.openInternetPanel(this)
+                speakResponse(msg, continueConversation = true)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.CheckWifiStatus -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.getInternetStatus(this)
+                speakResponse(msg, continueConversation = true)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.OpenBluetoothSettings -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.openBluetoothPanel(this)
+                speakResponse(msg, continueConversation = true)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.CheckBatteryStatus -> {
+                val msg = com.example.nordassistant.device.DeviceControlHelper.getBatteryStatus(this)
+                speakResponse(msg, continueConversation = true)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.ControlVolume -> {
+                val msg = when (action.volumeAction) {
+                    "max" -> com.example.nordassistant.device.DeviceControlHelper.setMaxVolume(this)
+                    "mute" -> com.example.nordassistant.device.DeviceControlHelper.setMuteVolume(this, true)
+                    "unmute" -> com.example.nordassistant.device.DeviceControlHelper.setMuteVolume(this, false)
+                    "down" -> com.example.nordassistant.device.DeviceControlHelper.adjustVolume(this, android.media.AudioManager.ADJUST_LOWER)
+                    else -> {
+                        if (action.percent != null) {
+                            com.example.nordassistant.device.DeviceControlHelper.setVolumePercent(this, action.percent)
+                        } else {
+                            com.example.nordassistant.device.DeviceControlHelper.adjustVolume(this, android.media.AudioManager.ADJUST_RAISE)
+                        }
+                    }
+                }
+                speakResponse(msg, continueConversation = true)
             }
         }
     }
