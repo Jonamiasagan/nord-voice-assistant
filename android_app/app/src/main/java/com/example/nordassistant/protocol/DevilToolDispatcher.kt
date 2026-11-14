@@ -21,6 +21,8 @@ sealed class DevilToolAction {
     object OpenBluetoothSettings : DevilToolAction()
     object CheckBatteryStatus : DevilToolAction()
     data class ControlVolume(val volumeAction: String, val percent: Int? = null) : DevilToolAction()
+    data class SearchYouTube(val query: String) : DevilToolAction()
+    object RefreshYouTube : DevilToolAction()
 }
 
 /**
@@ -38,6 +40,11 @@ object DevilToolDispatcher {
             trimmed.contains("TOOL_WIFI") -> return DevilToolAction.CheckWifiStatus
             trimmed.contains("TOOL_VOLUME_UP") -> return DevilToolAction.ControlVolume("up")
             trimmed.contains("TOOL_VOLUME_DOWN") -> return DevilToolAction.ControlVolume("down")
+            trimmed.contains("TOOL_YOUTUBE_REFRESH") -> return DevilToolAction.RefreshYouTube
+            trimmed.startsWith("TOOL_YOUTUBE_SEARCH:") -> {
+                val q = trimmed.removePrefix("TOOL_YOUTUBE_SEARCH:").trim()
+                return DevilToolAction.SearchYouTube(q)
+            }
         }
 
         val jsonStr = when {
@@ -121,6 +128,11 @@ object DevilToolDispatcher {
                     val pct = if (json.has("percent")) json.optInt("percent") else null
                     DevilToolAction.ControlVolume(level, pct)
                 }
+                "youtube_search", "search_youtube" -> {
+                    val query = json.optString("query").ifEmpty { json.optString("search") }
+                    DevilToolAction.SearchYouTube(query)
+                }
+                "youtube_refresh", "refresh_youtube" -> DevilToolAction.RefreshYouTube
                 else -> null
             }
         } catch (e: Exception) {

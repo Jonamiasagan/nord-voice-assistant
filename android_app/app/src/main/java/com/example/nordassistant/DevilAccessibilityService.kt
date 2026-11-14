@@ -75,6 +75,11 @@ class DevilAccessibilityService : AccessibilityService() {
             Log.i(TAG, "Darwinbox auto-attendance ARMED for action: $action")
             instance?.scheduleDarwinboxAttempts()
         }
+
+        fun triggerYouTubeRefresh(): Boolean {
+            val svc = instance ?: return false
+            return svc.performYouTubeRefresh()
+        }
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -138,6 +143,52 @@ class DevilAccessibilityService : AccessibilityService() {
                     tryDarwinboxAutomation()
                 }
             }, delay)
+        }
+    }
+
+    fun performYouTubeRefresh(): Boolean {
+        Log.i(TAG, "Triggering YouTube pull-to-refresh gesture & reload...")
+        return try {
+            val metrics = resources.displayMetrics
+            val startX = metrics.widthPixels / 2f
+            val startY = metrics.heightPixels * 0.28f
+            val endY = metrics.heightPixels * 0.72f
+
+            val path = Path().apply {
+                moveTo(startX, startY)
+                lineTo(startX, endY)
+            }
+            val stroke = GestureDescription.StrokeDescription(path, 0, 350)
+            val gesture = GestureDescription.Builder().addStroke(stroke).build()
+
+            // Also attempt to click Home tab if present
+            try {
+                val root = rootInActiveWindow
+                val homeNodes = root?.findAccessibilityNodeInfosByText("Home")
+                val homeButton = homeNodes?.firstOrNull { it.isClickable || it.parent?.isClickable == true }
+                if (homeButton != null) {
+                    if (homeButton.isClickable) homeButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    else homeButton.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    Log.i(TAG, "Clicked YouTube Home tab to reload feed")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not find/click YouTube Home tab", e)
+            }
+
+            dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    super.onCompleted(gestureDescription)
+                    Log.i(TAG, "YouTube pull-to-refresh swipe completed successfully")
+                }
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    super.onCancelled(gestureDescription)
+                    Log.w(TAG, "YouTube pull-to-refresh swipe cancelled")
+                }
+            }, null)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to dispatch YouTube refresh gesture", e)
+            false
         }
     }
 

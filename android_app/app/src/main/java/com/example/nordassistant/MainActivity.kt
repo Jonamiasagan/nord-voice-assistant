@@ -1241,6 +1241,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val trimmed = normalizeSpokenCommand(input)
         val lower = trimmed.lowercase(Locale.getDefault())
 
+        // YouTube commands belong to YouTube automation, not VLC
+        if (lower.contains("youtube") || lower.contains("yt")) {
+            return false
+        }
+
         // 1. Direct App Launch for VLC
         if (lower in listOf("vlc", "vlc player", "open vlc", "open vlc player", "launch vlc", "start vlc", "start vlc player")) {
             openApp("vlc")
@@ -2270,6 +2275,36 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             // User Identity & Name Check
             trimmed.contains(Regex("(?i)\\b(?:what\\s+is\\s+my\\s+name|tell\\s+me\\s+my\\s+name|do\\s+you\\s+know\\s+my\\s+name|who\\s+am\\s+i)\\b")) -> {
                 speakResponse("You are my Boss, Bhaman!", continueConversation = true)
+            }
+
+            // ── 9h. YouTube Search & Feed Refresh ──
+            // Search on YouTube (e.g. "search interstellar on youtube", "play coldplay on youtube", "youtube search lofi beats")
+            trimmed.contains(Regex("(?i)\\b(?:search|find|play|watch|look\\s+up)\\s+(.+?)\\s+(?:on|in)\\s+youtube\\b")) -> {
+                val match = Regex("(?i)\\b(?:search|find|play|watch|look\\s+up)\\s+(.+?)\\s+(?:on|in)\\s+youtube\\b").find(trimmed)
+                val q = match?.groupValues?.get(1)?.trim().orEmpty()
+                val msg = com.example.nordassistant.device.YouTubeHelper.searchYouTube(this, q)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            trimmed.contains(Regex("(?i)\\b(?:search|play)\\s+youtube\\s+(?:for\\s+)?(.+)\\b")) -> {
+                val match = Regex("(?i)\\b(?:search|play)\\s+youtube\\s+(?:for\\s+)?(.+)\\b").find(trimmed)
+                val q = match?.groupValues?.get(1)?.trim().orEmpty()
+                val msg = com.example.nordassistant.device.YouTubeHelper.searchYouTube(this, q)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            trimmed.contains(Regex("(?i)\\byoutube\\s+(?:search|find|play|watch)\\s+(.+)\\b")) -> {
+                val match = Regex("(?i)\\byoutube\\s+(?:search|find|play|watch)\\s+(.+)\\b").find(trimmed)
+                val q = match?.groupValues?.get(1)?.trim().orEmpty()
+                val msg = com.example.nordassistant.device.YouTubeHelper.searchYouTube(this, q)
+                speakResponse(msg, continueConversation = true)
+            }
+
+            // Refresh / Reload YouTube feed
+            trimmed.contains(Regex("(?i)\\b(?:refresh|reload|update)\\s+(?:the\\s+)?(?:youtube|yt)\\s*(?:page|feed|tab|home)?\\b")) ||
+            trimmed.matches(Regex("(?i)^(?:refresh|reload|update)\\s+(?:the\\s+)?(?:page|feed)$")) -> {
+                val msg = com.example.nordassistant.device.YouTubeHelper.refreshYouTube(this)
+                speakResponse(msg, continueConversation = true)
             }
 
             // ── 10. General Apps ──
@@ -3476,6 +3511,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         }
                     }
                 }
+                speakResponse(msg, continueConversation = true)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.SearchYouTube -> {
+                val msg = com.example.nordassistant.device.YouTubeHelper.searchYouTube(this, action.query)
+                speakResponse(msg, continueConversation = true)
+            }
+            is com.example.nordassistant.protocol.DevilToolAction.RefreshYouTube -> {
+                val msg = com.example.nordassistant.device.YouTubeHelper.refreshYouTube(this)
                 speakResponse(msg, continueConversation = true)
             }
         }

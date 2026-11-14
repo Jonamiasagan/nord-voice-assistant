@@ -186,6 +186,8 @@ object LlamaHelper {
         promptBuilder.append("- Wi-Fi / internet / connection: TOOL_WIFI\n")
         promptBuilder.append("- Volume up / louder: TOOL_VOLUME_UP\n")
         promptBuilder.append("- Volume down / quieter / mute: TOOL_VOLUME_DOWN\n")
+        promptBuilder.append("- YouTube search / play on YouTube: TOOL_YOUTUBE_SEARCH\n")
+        promptBuilder.append("- YouTube refresh / reload feed: TOOL_YOUTUBE_REFRESH\n")
         promptBuilder.append("For casual chat, answer Boss Bhaman warmly in 1 short spoken sentence. Boss's name is Bhaman.\n")
         promptBuilder.append("<|im_end|>\n")
 
@@ -269,6 +271,11 @@ object LlamaHelper {
                         qLower.contains(Regex("\\b(?:torch|flashlight|light|dark)\\b")) -> "TOOL_FLASHLIGHT_ON"
                         qLower.contains(Regex("\\b(?:wi-?fi|internet|data|network|connection)\\b")) -> "TOOL_WIFI"
                         qLower.contains(Regex("\\b(?:volume|louder|sound|quiet|mute)\\b")) -> "TOOL_VOLUME_UP"
+                        qLower.contains("youtube") && qLower.contains(Regex("\\b(?:refresh|reload)\\b")) -> "TOOL_YOUTUBE_REFRESH"
+                        qLower.contains("youtube") && qLower.contains(Regex("\\b(?:search|play|find|watch)\\b")) -> {
+                            val q = query.replace(Regex("(?i)\\b(?:on|in)?\\s*youtube\\b"), "").trim()
+                            "TOOL_YOUTUBE_SEARCH:$q"
+                        }
                         else -> "I'm right here with you, Boss! Tell me more."
                     }
                 } else {
