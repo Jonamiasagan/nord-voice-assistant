@@ -260,6 +260,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             if (action == "DARWINBOX_CHECK_OUT") {
                 handleDarwinboxAttendance(DevilAccessibilityService.DarwinboxAction.CHECK_OUT)
+            } else if (action == "DARWINBOX_CHECK_IN") {
+                handleDarwinboxAttendance(DevilAccessibilityService.DarwinboxAction.CHECK_IN)
             } else if (!cmd.isNullOrBlank()) {
                 refreshConversationSession()
                 processCommand(cmd)
@@ -367,6 +369,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                 startListening()
                             }
                         } else {
+                            BluetoothAudioHelper.resetToNormal()
                             if (DevilProtocolManager.isSentryModeActive) {
                                 DevilSentryService.resumeAfterConversation()
                             }
@@ -502,6 +505,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         conversationSessionEndTime = 0L
         conversationWatchdogJob?.cancel()
         conversationWatchdogJob = null
+        if (isListening) {
+            try {
+                speechRecognizer.stopListening()
+                speechRecognizer.cancel()
+            } catch (_: Exception) {}
+            isListening = false
+        }
+        stopSco()
         if (protocol == DevilProtocol.BOSS_MODE) {
             DevilProtocolManager.revokeSentryMode(this)
             bossSecurity.revokeGuest()
@@ -616,6 +627,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             override fun onEndOfSpeech() { 
                 isListening = false 
                 assistantState = AssistantState.THINKING
+                BluetoothAudioHelper.resetToNormal()
             }
             override fun onError(error: Int) {
                 isListening = false
@@ -794,9 +806,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
     
     private fun stopSco() {
-        if (!inConversationSession) {
-            BluetoothAudioHelper.resetToNormal()
-        }
+        BluetoothAudioHelper.resetToNormal()
     }
 
     private val vipSenders = setOf("uj", "baddu", "bethol", "amma", "uma", "barath", "bharath", "mom", "mother", "akka", "sister", "you")
@@ -1851,6 +1861,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     openApp("whatsapp")
                 }
             }
+            // ── Ultra-Concise WhatsApp Dispatch Fast-Path ──
+            // e.g. "whatsapp uj hello", "tell uj I'm coming", "message uj call me", "text uj reaching in 5 mins", "send uj ok"
+            parseWhatsAppSendCommand(trimmed) != null -> {
+                val parsed = parseWhatsAppSendCommand(trimmed)!!
+                sendWhatsAppTextMessage(normalizeContactName(parsed.first), parsed.second)
+            }
             openWhatsAppToContactRegex.find(trimmed) != null -> {
                 val match = openWhatsAppToContactRegex.find(trimmed)!!
                 val targetName = match.groupValues.drop(1).firstOrNull { it.isNotBlank() }?.trim() ?: ""
@@ -1929,7 +1945,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 val message = match.groupValues[2].trim()
                 sendWhatsAppTextMessage(normalizeContactName(targetName), message)
             }
-            isWhatsApp && (trimmed.contains(Regex("(?i)\\b(?:read|check|get|any|latest|recent|listen|hear|new|unread)\\b")) || !trimmed.contains(Regex("(?i)\\b(open|launch|start|show)\\b"))) -> {
+            isWhatsApp && trimmed.contains(Regex("(?i)\\b(?:read|check|listen|hear|what\\s+are)\\b.*\\b(?:messages?|chats?|unread)\\b|\\bunread\\s+(?:whats?app|messages?)\\b|\\bcheck\\s+(?:whats?app|messages?)\\b")) -> {
                 val fromMatch = Regex("(?i)(?:from|by)\\s+(.+)").find(trimmed)
                 val sender = fromMatch?.groupValues?.get(1)?.trim()
                 val isLast = trimmed.contains(Regex("(?i)\\b(last|latest|recent|previous|repeat)\\b"))
@@ -2064,6 +2080,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakResponse(ans, continueConversation = true)
             }
 
+            // 9c-2. Reset/Clear Today's Attendance Record
+            (trimmed.contains(Regex("(?i)\\b(reset|clear)\\b")) && trimmed.contains(Regex("(?i)\\b(attendance|check\\s*in|shift|darwinbox)\\b"))) -> {
+                DarwinboxShiftTracker.clearTodayShift(this)
+                DevilAccessibilityService.pendingDarwinboxAction = DevilAccessibilityService.DarwinboxAction.NONE
+                speakResponse("Cleared today's attendance record and reset pending actions, Boss.", continueConversation = false)
+            }
+
             // 9c-2. Today's holiday status ("is today a holiday", "today is a holiday", "did you check darwinbox that today is a holiday", "why is today a holiday", "how do you know today is a holiday", "is today holiday", "check holiday today")
             (!trimmed.contains(Regex("(?i)\\b(left|remaining|after|tomorrow|next|balance|pending)\\b")) &&
              trimmed.contains(Regex("(?i)\\b(is\\s*today\\s*(a\\s*)?(holiday|off|working(\\s*day)?)|today\\s*(is\\s*)?(a\\s*)?(holiday|off|working(\\s*day)?)|why\\s*(is\\s*)?today\\s*(is\\s*)?(a\\s*)?holiday|how\\s*(do\\s*)?you\\s*know\\s*(that\\s*)?(it\\s*is\\s*a\\s*|today\\s*is\\s*(a\\s*)?)?holiday|today'?s?\\s*holiday|holiday\\s*today)\\b"))) -> {
@@ -2122,6 +2145,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 speakResponse(ans, continueConversation = true)
             }
 
+            // 9c-2. Reset/Clear Today's Attendance Record
+            (trimmed.contains(Regex("(?i)\\b(reset|clear)\\b")) && trimmed.contains(Regex("(?i)\\b(attendance|check\\s*in|shift|darwinbox)\\b"))) -> {
+                DarwinboxShiftTracker.clearTodayShift(this)
+                DevilAccessibilityService.pendingDarwinboxAction = DevilAccessibilityService.DarwinboxAction.NONE
+                speakResponse("Cleared today's attendance record and reset pending actions, Boss.", continueConversation = false)
+            }
+
             // 9d. Manual check-in logging ("I checked in at 9:15 am", "we checked in at 9:15 am", "set check in time to 9:15 am", "record check in at 9:15 am")
             (trimmed.contains(Regex("(?i)\\b(checked\\s*in|chickened\\s*in|punched\\s*in|clocked\\s*in|check\\s*in\\s*time|set\\s*check\\s*in|record\\s*check\\s*in)\\b")) &&
              trimmed.contains(Regex("(?i)\\b(\\d{1,2}[:.\\s]?\\d{0,2}\\s*(am|pm)?|at\\s+\\d{1,2})\\b"))) -> {
@@ -2155,7 +2185,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             openAppRegex.matches(trimmed) -> {
                 val appName = openAppRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: return
                 if (!openApp(appName)) {
-                    queryBackend(trimmed)
+                    speakResponse("I couldn't find $appName installed on your phone, Boss.", continueConversation = true)
                 }
             }
             else -> {
@@ -2187,11 +2217,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             return
         }
 
-        // Launch Darwinbox directly via explicit ComponentName — avoids browser/deep-link redirect
+        // Launch Darwinbox directly into classic dashboard
         val launchIntent = Intent().apply {
             component = android.content.ComponentName(
                 "com.darwinbox.darwinbox",
-                "com.darwinbox.splashscreen.ui.SplashScreenActivity"
+                "com.darwinbox.core.dashboard.ui.DashboardActivity"
             )
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -2200,27 +2230,33 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         try {
             startActivity(launchIntent)
         } catch (e: Exception) {
-            // Fallback: if explicit component fails, try the default launcher intent
-            Log.w("MainActivity", "Explicit Darwinbox launch failed, trying package launcher", e)
-            val fallback = packageManager.getLaunchIntentForPackage("com.darwinbox.darwinbox")?.apply {
+            Log.w("MainActivity", "DashboardActivity launch failed, trying SplashScreenActivity", e)
+            val splashIntent = Intent().apply {
+                component = android.content.ComponentName(
+                    "com.darwinbox.darwinbox",
+                    "com.darwinbox.splashscreen.ui.SplashScreenActivity"
+                )
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
-            if (fallback != null) {
-                startActivity(fallback)
-            } else {
-                speakResponse("Could not open Darwinbox on your phone, Boss.")
-                return
+            try {
+                startActivity(splashIntent)
+            } catch (e2: Exception) {
+                val fallback = packageManager.getLaunchIntentForPackage("com.darwinbox.darwinbox")?.apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                if (fallback != null) {
+                    startActivity(fallback)
+                } else {
+                    speakResponse("Could not open Darwinbox on your phone, Boss.")
+                    return
+                }
             }
         }
 
-        // Delay triggering automation to allow splash screen + dashboard to fully load
-        val handler = Handler(Looper.getMainLooper())
-        handler.postDelayed({
-            DevilAccessibilityService.triggerDarwinbox(action)
-        }, 3000L)
+        // Arm accessibility automation immediately so it catches the transition without delay
+        DevilAccessibilityService.triggerDarwinbox(action)
 
-        // ── Save pending action to disk so DevilSentryService can retry if
-        //    MainActivity is killed before the accessibility click completes ──
+        // ── Save pending action to disk so attendance persists if killed ──
         val pendingActionStr = if (action == DevilAccessibilityService.DarwinboxAction.CHECK_IN)
             DarwinboxShiftTracker.PENDING_ACTION_CHECK_IN
         else
@@ -2363,6 +2399,75 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    /**
+     * Parses concise voice commands for WhatsApp dispatch:
+     * - "whatsapp uj hello"
+     * - "tell uj I'm coming"
+     * - "message uj call me back"
+     * - "text uj reaching in 5 mins"
+     * - "send uj ok"
+     * - "send to uj hello"
+     */
+    private fun parseWhatsAppSendCommand(input: String): Pair<String, String>? {
+        val clean = input.trim()
+            .replace(Regex("^(?:can\\s+you\\s+|please\\s+)", RegexOption.IGNORE_CASE), "")
+            .trim()
+
+        val prefixRegex = Regex(
+            "(?i)^(?:(?:send\\s+(?:a\\s+)?)?whats?app(?:\\s+message)?(?:\\s+to)?|" +
+            "(?:send\\s+(?:a\\s+)?)?(?:message|msg)(?:\\s+to)?|" +
+            "text(?:\\s+to)?|" +
+            "tell|" +
+            "send\\s+to|" +
+            "send)\\s+(.+)$"
+        )
+        val match = prefixRegex.find(clean) ?: return null
+        var remainder = match.groupValues[1].trim()
+        if (remainder.isBlank()) return null
+
+        remainder = remainder.replace(Regex("^(?:to|with)\\s+", RegexOption.IGNORE_CASE), "").trim()
+
+        // 1. Explicit delimiter: saying / that / say / tell / telling
+        val delimiterMatch = Regex("(?i)^(.+?)\\s+(?:saying|that|say|tell|telling)\\s+(.+)$").find(remainder)
+        if (delimiterMatch != null) {
+            val contactCandidate = delimiterMatch.groupValues[1].trim()
+            val msgCandidate = delimiterMatch.groupValues[2].trim()
+            if (contactCandidate.isNotBlank() && msgCandidate.isNotBlank()) {
+                val found = findContactByName(contactCandidate)
+                if (found != null) {
+                    return Pair(found.displayName, msgCandidate)
+                }
+            }
+        }
+
+        // 2. Token-based contact resolution
+        val tokens = remainder.split(Regex("\\s+"))
+        if (tokens.size >= 2) {
+            if (tokens.size >= 3) {
+                val twoWord = "${tokens[0]} ${tokens[1]}"
+                val contact2 = findContactByName(twoWord)
+                if (contact2 != null) {
+                    val msg = tokens.drop(2).joinToString(" ").trim()
+                    if (msg.isNotBlank()) return Pair(contact2.displayName, msg)
+                }
+            }
+            val oneWord = tokens[0]
+            val contact1 = findContactByName(oneWord)
+            if (contact1 != null) {
+                val msg = tokens.drop(1).joinToString(" ").trim()
+                if (msg.isNotBlank()) return Pair(contact1.displayName, msg)
+            }
+        }
+
+        // 3. Single contact without message (e.g. "whatsapp uj")
+        val singleContact = findContactByName(remainder)
+        if (singleContact != null) {
+            return Pair(singleContact.displayName, "")
+        }
+
+        return null
+    }
+
     private fun sendWhatsAppTextMessage(targetName: String, rawMessage: String) {
         val contact = findContactByName(targetName)
         if (contact == null) {
@@ -2378,7 +2483,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             .trim(' ', ':', '"', '\'')
         val formattedText = if (cleanMessage.equals("whatsapp", ignoreCase = true) || cleanMessage.equals("message", ignoreCase = true)) "" else cleanMessage
 
-        speakResponse("Opening WhatsApp to send message to ${contact.displayName}.")
+        val prompt = if (formattedText.isNotEmpty()) {
+            "Sending message to ${contact.displayName}, Boss."
+        } else {
+            "Opening WhatsApp for ${contact.displayName}, Boss."
+        }
+        speakResponse(prompt)
 
         try {
             val uri = if (formattedText.isNotEmpty()) {
@@ -2641,6 +2751,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     startActivity(intent)
                     speakResponse("Opening Spotify")
+                    return true
+                }
+            }
+            if (cleanName.contains("netflix")) {
+                val intent = packageManager.getLaunchIntentForPackage("com.netflix.mediaclient")
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                    speakResponse("Opening Netflix")
                     return true
                 }
             }
@@ -3286,6 +3405,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             try { speechRecognizer.stopListening() } catch (_: Exception) {}
             isListening = false
         }
+        // Force release conversation session and restore background music to full volume
+        inConversationSession = false
+        autoListenAfterSpeech = false
+        conversationSessionEndTime = 0L
+        conversationWatchdogJob?.cancel()
+        conversationWatchdogJob = null
+        stopSco()
+        BluetoothAudioHelper.resetToNormal()
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                audioManager.clearCommunicationDevice()
+            }
+            audioManager.isSpeakerphoneOn = false
+            audioManager.mode = AudioManager.MODE_NORMAL
+        } catch (_: Exception) {}
+
         if (DevilProtocolManager.isSentryModeActive) {
             DevilSentryService.resumeAfterConversation()
         }
